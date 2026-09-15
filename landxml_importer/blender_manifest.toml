@@ -1,0 +1,20 @@
+schema_version = "1.0.0"
+id = "landxml_tin_importer"
+version = "0.1.0"
+name = "LandXML TIN Importer"
+tagline = "Import authoritative LandXML TIN surfaces"
+maintainer = "Jonathan McMichael"
+type = "add-on"
+blender_version_min = "4.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Read LandXML surface files selected by the user"
+
+[build]
+paths = [
+  "__init__.py",
+  "blender_import.py",
+  "landxml.py",
+]
+

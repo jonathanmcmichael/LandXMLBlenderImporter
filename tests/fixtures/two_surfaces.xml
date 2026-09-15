@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+  <Surfaces>
+    <Surface name="Existing Ground">
+      <Definition surfType="TIN">
+        <Pnts>
+          <P id="1">1000 2000 10</P>
+          <P id="2">1000 2010 10</P>
+          <P id="3">1010 2000 12</P>
+        </Pnts>
+        <Faces><F>1 2 3</F></Faces>
+      </Definition>
+    </Surface>
+    <Surface name="Finished Ground">
+      <Definition surfType="TIN">
+        <Pnts>
+          <P id="1">1100 2200 20</P>
+          <P id="2">1100 2210 20</P>
+          <P id="3">1110 2200 22</P>
+        </Pnts>
+        <Faces>
+          <F>1 2 3</F>
+          <F>1 2 999</F>
+        </Faces>
+      </Definition>
+    </Surface>
+  </Surfaces>
+</LandXML>
+
