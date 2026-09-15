@@ -3,3 +3,6 @@ __pycache__/
 *.zip
 .pytest_cache/
 
+# Real client/project LandXML exports for local testing only — never commit these.
+/samples/
+
