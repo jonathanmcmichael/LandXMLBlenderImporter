@@ -19,6 +19,9 @@ def import_landxml(
     origin = shared_origin(surfaces) if shift_to_origin else (0.0, 0.0, 0.0)
     imported_objects = []
 
+    collection = bpy.data.collections.new(f"LandXML_{Path(filepath).stem}")
+    bpy.context.collection.children.link(collection)
+
     for surface in surfaces:
         data = build_mesh_data(surface, origin=origin, source_units=source_units)
         mesh = bpy.data.meshes.new(data.name)
@@ -26,7 +29,7 @@ def import_landxml(
         mesh.update()
 
         obj = bpy.data.objects.new(data.name, mesh)
-        bpy.context.collection.objects.link(obj)
+        collection.objects.link(obj)
         obj["landxml_source"] = str(Path(filepath))
         obj["landxml_source_units"] = source_units
         obj["landxml_unit_to_meters"] = UNIT_TO_METERS[source_units]

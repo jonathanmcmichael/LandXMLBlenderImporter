@@ -28,6 +28,7 @@ This is intentionally only three extension files. The XML/domain code stays inde
 - Supports meters, international feet, and US survey feet as source units.
 - Converts imported coordinates to meters, matching Blender's conventional unit scale.
 - Leaves elevation unshifted by default while shifting Easting and Northing near zero.
+- Groups each import's surfaces into a new Blender Collection named `LandXML_<filename>`, so repeated imports stay organized instead of dumping loose objects into the scene.
 
 ## Test outside Blender
 
@@ -50,5 +51,11 @@ Install the resulting ZIP through Blender's **Preferences → Extensions → Ins
 
 ## Current boundary
 
-The initial version assumes the common Civil 3D point order `Northing Easting Elevation`. Automatic coordinate-system discovery, breaklines, boundaries, and LandXML features other than authoritative TIN points/faces are deliberately out of scope until representative files are available.
+The initial version assumes the common Civil 3D point order `Northing Easting Elevation`. Automatic coordinate-system discovery, breaklines, boundaries, and LandXML features other than authoritative TIN points/faces are deliberately out of scope.
+
+Boundary clipping is intentionally not handled separately: Civil 3D bakes any applied surface boundary into which triangles appear in `<F>`, so the authoritative face list already reflects the correct clipped shape without needing to parse `<Boundaries>`.
+
+## Verified against a real export
+
+Validated against a real Civil 3D 2027 export (single TIN surface, 55k points, 110k faces, declared US Survey Feet, no `<CoordinateSystem>`): parses in well under a second, unit conversion matches the file's own `elevMax`/`elevMin` metadata exactly, and the imported mesh renders as a coherent, correctly oriented finished-grade surface with zero invalid faces. Multi-surface shared-origin alignment is currently only exercised by the synthetic `tests/fixtures/two_surfaces.xml` fixture — a real multi-surface export hasn't been tested yet.
 
