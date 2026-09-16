@@ -56,6 +56,8 @@ The default point order is `Northing Easting Elevation` per the LandXML 1.2 stan
 
 Boundary clipping is intentionally not handled separately: Civil 3D bakes any applied surface boundary into which triangles appear in `<F>`, so the authoritative face list already reflects the correct clipped shape without needing to parse `<Boundaries>`.
 
+Long, thin ("sliver") triangles from the source TIN are left as-is rather than remeshed. They're geometrically valid — they represent genuinely dense point layout along linear features (curbs, centerlines, swales) — and tested edge-flip-only cleanup (Blender's Beautify Faces) barely helps: on the real 55k-point sample it reduced sliver triangles by only ~1.2%, because flipping the diagonal of an already-thin quad doesn't change the fact that all four of its points lie in a thin strip. Fixing this for real would require lossy simplification (decimation) or full retriangulation, both of which move away from exact point preservation, so they're left as a deliberate non-goal for now.
+
 ## Verified against a real export
 
 Validated against a real Civil 3D 2027 export (single TIN surface, 55k points, 110k faces, declared US Survey Feet, no `<CoordinateSystem>`): parses in well under a second, unit conversion matches the file's own `elevMax`/`elevMin` metadata exactly, and the imported mesh renders as a coherent, correctly oriented finished-grade surface with zero invalid faces. Multi-surface shared-origin alignment is currently only exercised by the synthetic `tests/fixtures/two_surfaces.xml` fixture — a real multi-surface export hasn't been tested yet.
