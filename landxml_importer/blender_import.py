@@ -22,15 +22,19 @@ def _finalize_shading(obj: bpy.types.Object, mesh: bpy.types.Mesh) -> None:
     """
     bm = bmesh.new()
     bm.from_mesh(mesh)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.normal_update()
 
-    # recalc_face_normals only makes adjacent faces mutually consistent; on
-    # an open sheet like a TIN (no enclosed volume) it has no notion of "up"
-    # and can pick the downward-facing orientation for the whole surface.
-    # Terrain is predominantly near-horizontal, so use the sign of the
-    # summed Z component to detect and correct a whole-mesh flip.
-    if sum(face.normal.z for face in bm.faces) < 0:
-        bmesh.ops.reverse_faces(bm, faces=bm.faces)
+    # A TIN is a heightfield: every (easting, northing) maps to exactly one
+    # elevation, so there are no true overhangs and each triangle's correct
+    # "up" winding can be decided from its own geometry alone. Don't use
+    # neighbor-consistency algorithms like recalc_face_normals here -- a TIN
+    # is an open sheet that can have separate triangulation islands meeting
+    # only at a single shared vertex (common around long sliver triangles),
+    # and consistency propagation can't cross that gap, leaving isolated
+    # patches flipped even after correcting the mesh's overall orientation.
+    to_flip = [face for face in bm.faces if face.normal.z < 0]
+    if to_flip:
+        bmesh.ops.reverse_faces(bm, faces=to_flip)
 
     bm.to_mesh(mesh)
     bm.free()

@@ -29,7 +29,7 @@ This is intentionally only three extension files. The XML/domain code stays inde
 - Converts imported coordinates to meters, matching Blender's conventional unit scale.
 - Leaves elevation unshifted by default while shifting Easting and Northing near zero.
 - Groups each import's surfaces into a new Blender Collection named `LandXML_<filename>`, so repeated imports stay organized instead of dumping loose objects into the scene.
-- Recalculates consistent face normals and applies angle-based smooth shading. LandXML's `<F>` triangles don't guarantee winding, and TINs are open sheets (not closed volumes), so a naive normal recalculation can orient the *entire* surface upside down — this is corrected using the fact that civil terrain is predominantly near-horizontal.
+- Orients every triangle's normal upward and applies angle-based smooth shading. LandXML's `<F>` triangles don't guarantee winding, so each face's correct orientation is decided from its own geometry (a TIN is a heightfield — one elevation per Easting/Northing, so there are no true overhangs) rather than from neighbor-consistency algorithms, which can miss isolated triangulation islands that meet neighbors only at a single vertex — common around the long sliver triangles TINs produce.
 
 ## Test outside Blender
 
