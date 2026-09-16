@@ -41,14 +41,22 @@ python -m unittest discover -s tests -v
 
 ## Build and install
 
-With Blender available on your command line:
+One command rebuilds the extension and installs/enables it in Blender:
+
+```powershell
+pwsh scripts/install_extension.ps1
+```
+
+This assumes the Microsoft Store install of Blender, using the `blender-launcher.exe` execution alias (the standard `blender.exe` path under `WindowsApps` is ACL-protected and can't be run directly). Edit `$blenderAlias` in the script if Blender is installed a different way. **Restart Blender** (or disable/re-enable the extension in Preferences) afterward — it won't hot-reload an already-enabled extension's code.
+
+To do it manually instead:
 
 ```powershell
 blender --command extension validate --source-dir landxml_importer
 blender --command extension build --source-dir landxml_importer
 ```
 
-Install the resulting ZIP through Blender's **Preferences → Extensions → Install from Disk**. The command appears under **File → Import → LandXML TIN Surface (.xml)**.
+Install the resulting ZIP through Blender's **Preferences → Extensions → Install from Disk**. Either way, the command appears under **File → Import → LandXML TIN Surface (.xml)**.
 
 ## Current boundary
 
