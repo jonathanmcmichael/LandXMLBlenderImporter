@@ -51,7 +51,7 @@ Install the resulting ZIP through Blender's **Preferences → Extensions → Ins
 
 ## Current boundary
 
-The initial version assumes the common Civil 3D point order `Northing Easting Elevation`. Automatic coordinate-system discovery, breaklines, boundaries, and LandXML features other than authoritative TIN points/faces are deliberately out of scope.
+The default point order is `Northing Easting Elevation` per the LandXML 1.2 standard, but this is exposed as an import option (`Point Order`) since some real-world exports reverse it — if a terrain looks mirrored or rotated 90°, switch it. Automatic coordinate-system discovery, breaklines, boundaries, and LandXML features other than authoritative TIN points/faces are deliberately out of scope.
 
 Boundary clipping is intentionally not handled separately: Civil 3D bakes any applied surface boundary into which triangles appear in `<F>`, so the authoritative face list already reflects the correct clipped shape without needing to parse `<Boundaries>`.
 

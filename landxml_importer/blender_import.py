@@ -14,8 +14,9 @@ def import_landxml(
     *,
     source_units: str,
     shift_to_origin: bool,
+    point_order: str = "NEZ",
 ):
-    surfaces = parse_landxml(filepath)
+    surfaces = parse_landxml(filepath, point_order=point_order)
     origin = shared_origin(surfaces) if shift_to_origin else (0.0, 0.0, 0.0)
     imported_objects = []
 
@@ -32,6 +33,7 @@ def import_landxml(
         collection.objects.link(obj)
         obj["landxml_source"] = str(Path(filepath))
         obj["landxml_source_units"] = source_units
+        obj["landxml_point_order"] = point_order
         obj["landxml_unit_to_meters"] = UNIT_TO_METERS[source_units]
         obj["landxml_origin_easting"] = origin[0]
         obj["landxml_origin_northing"] = origin[1]

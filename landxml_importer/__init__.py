@@ -32,6 +32,15 @@ class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
         description="Subtract one shared minimum Easting/Northing while retaining source elevation",
         default=True,
     )
+    point_order: EnumProperty(
+        name="Point Order",
+        description="Coordinate order used by the LandXML <P> point values",
+        items=(
+            ("NEZ", "Northing, Easting, Elevation", "LandXML 1.2 standard order; most Civil 3D exports"),
+            ("ENZ", "Easting, Northing, Elevation", "Non-standard order; use if the terrain appears mirrored or rotated"),
+        ),
+        default="NEZ",
+    )
 
     def execute(self, context):
         bpy.ops.object.select_all(action="DESELECT")
@@ -40,6 +49,7 @@ class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
                 self.filepath,
                 source_units=self.source_units,
                 shift_to_origin=self.shift_to_origin,
+                point_order=self.point_order,
             )
         except Exception as exc:
             self.report({"ERROR"}, str(exc))

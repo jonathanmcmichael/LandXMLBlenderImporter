@@ -6,7 +6,7 @@ import unittest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "landxml_importer"))
 
-from landxml import build_mesh_data, parse_landxml, shared_origin  # noqa: E402
+from landxml import LandXMLError, build_mesh_data, parse_landxml, shared_origin  # noqa: E402
 
 
 class LandXMLTests(unittest.TestCase):
@@ -41,6 +41,17 @@ class LandXMLTests(unittest.TestCase):
         self.assertAlmostEqual(mesh.vertices[1][0], 3.048)
         self.assertAlmostEqual(mesh.vertices[2][1], 3.048)
         self.assertAlmostEqual(mesh.vertices[0][2], 3.048)
+
+    def test_easting_northing_point_order_swaps_coordinates(self):
+        fixture = REPO_ROOT / "tests" / "fixtures" / "two_surfaces.xml"
+        surfaces = parse_landxml(fixture, point_order="ENZ")
+        # Point "1" text is "1000 2000 10"; NEZ reads (E=2000, N=1000), ENZ reads (E=1000, N=2000).
+        self.assertEqual(surfaces[0].points["1"], (1000.0, 2000.0, 10.0))
+
+    def test_unsupported_point_order_raises(self):
+        fixture = REPO_ROOT / "tests" / "fixtures" / "two_surfaces.xml"
+        with self.assertRaises(LandXMLError):
+            parse_landxml(fixture, point_order="ZZZ")
 
 
 if __name__ == "__main__":

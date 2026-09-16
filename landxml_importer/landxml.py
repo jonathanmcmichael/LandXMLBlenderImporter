@@ -14,6 +14,10 @@ UNIT_TO_METERS = {
     "US_SURVEY_FEET": 1200.0 / 3937.0,
 }
 
+POINT_ORDERS = ("NEZ", "ENZ")
+"""NEZ = Northing, Easting, Elevation (LandXML 1.2 standard). ENZ = the
+occasional non-standard Civil 3D export where Easting comes first."""
+
 
 class LandXMLError(ValueError):
     """Raised when a file has no usable authoritative TIN data."""
@@ -43,7 +47,7 @@ def _descendants(element: ET.Element, name: str) -> Iterable[ET.Element]:
     return (child for child in element.iter() if _local_name(child.tag) == name)
 
 
-def _parse_surface(element: ET.Element, fallback_name: str) -> TinSurface | None:
+def _parse_surface(element: ET.Element, fallback_name: str, point_order: str) -> TinSurface | None:
     definition = next(_descendants(element, "Definition"), None)
     search_root = definition if definition is not None else element
 
@@ -54,9 +58,10 @@ def _parse_surface(element: ET.Element, fallback_name: str) -> TinSurface | None
         if not point_id or len(values) < 3:
             continue
         try:
-            northing, easting, elevation = map(float, values[:3])
+            first, second, elevation = map(float, values[:3])
         except ValueError:
             continue
+        easting, northing = (second, first) if point_order == "NEZ" else (first, second)
         if point_id in points:
             raise LandXMLError(f"Surface '{element.get('name', fallback_name)}' has duplicate point ID '{point_id}'")
         points[point_id] = (easting, northing, elevation)
@@ -81,8 +86,11 @@ def _parse_surface(element: ET.Element, fallback_name: str) -> TinSurface | None
     )
 
 
-def parse_landxml(path: str | Path) -> tuple[TinSurface, ...]:
+def parse_landxml(path: str | Path, *, point_order: str = "NEZ") -> tuple[TinSurface, ...]:
     """Read importable surfaces while preserving point IDs and source faces."""
+    if point_order not in POINT_ORDERS:
+        raise LandXMLError(f"Unsupported point order: {point_order}")
+
     try:
         root = ET.parse(path).getroot()
     except (ET.ParseError, OSError) as exc:
@@ -90,7 +98,7 @@ def parse_landxml(path: str | Path) -> tuple[TinSurface, ...]:
 
     surfaces = []
     for index, element in enumerate(_descendants(root, "Surface"), start=1):
-        parsed = _parse_surface(element, f"LandXML_Surface_{index}")
+        parsed = _parse_surface(element, f"LandXML_Surface_{index}", point_order)
         if parsed is not None:
             surfaces.append(parsed)
 
