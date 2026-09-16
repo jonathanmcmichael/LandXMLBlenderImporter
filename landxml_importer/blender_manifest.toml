@@ -5,6 +5,7 @@ name = "LandXML TIN Importer"
 tagline = "Import authoritative LandXML TIN surfaces"
 maintainer = "Jonathan McMichael"
 type = "add-on"
+website = "https://github.com/jonathanmcmichael/LandXMLBlenderImporter"
 blender_version_min = "4.2.0"
 license = ["SPDX:GPL-3.0-or-later"]
 
@@ -17,4 +18,3 @@ paths = [
   "blender_import.py",
   "landxml.py",
 ]
-

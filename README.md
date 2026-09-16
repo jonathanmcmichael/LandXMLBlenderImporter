@@ -1,6 +1,6 @@
 # LandXML TIN Importer for Blender
 
-A small Blender 4.2+ extension for importing Civil 3D LandXML TIN surfaces without retriangulating them.
+A Blender 4.2+ extension for importing Civil 3D LandXML TIN surfaces without retriangulating them. Tested with Blender 5.2.2 LTS.
 
 The importer treats the LandXML `<P>` point coordinates and `<F>` point-ID references as authoritative. Civil coordinates are mapped from `Northing, Easting, Elevation` to Blender `X = Easting`, `Y = Northing`, `Z = Elevation`. By default, one shared horizontal origin is subtracted from every surface in the file so large-coordinate precision is manageable while surfaces retain their relative placement.
 
@@ -41,22 +41,30 @@ python -m unittest discover -s tests -v
 
 ## Build and install
 
-One command rebuilds the extension and installs/enables it in Blender:
+One command rebuilds the extension and installs/enables it in Blender on Windows:
 
 ```powershell
 pwsh scripts/install_extension.ps1
 ```
 
-This assumes the Microsoft Store install of Blender, using the `blender-launcher.exe` execution alias (the standard `blender.exe` path under `WindowsApps` is ACL-protected and can't be run directly). Edit `$blenderAlias` in the script if Blender is installed a different way. **Restart Blender** (or disable/re-enable the extension in Preferences) afterward — it won't hot-reload an already-enabled extension's code.
+The script checks the standard blender.org installation first and then the Microsoft Store execution alias. **Restart Blender** (or disable/re-enable the extension in Preferences) afterward; Blender will not hot-reload an already-enabled extension's code.
 
 To do it manually instead:
 
 ```powershell
-blender --command extension validate --source-dir landxml_importer
+blender --command extension validate landxml_importer
 blender --command extension build --source-dir landxml_importer
 ```
 
 Install the resulting ZIP through Blender's **Preferences → Extensions → Install from Disk**. Either way, the command appears under **File → Import → LandXML TIN Surface (.xml)**.
+
+## Support
+
+Use [GitHub Issues](https://github.com/jonathanmcmichael/LandXMLBlenderImporter/issues) for reproducible bugs and compatibility reports. Do not attach confidential project LandXML files; use a minimal sanitized sample when one is needed to reproduce an issue.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 or later. See `LICENSE`.
 
 ## Current boundary
 
@@ -69,4 +77,3 @@ Long, thin ("sliver") triangles from the source TIN are left as-is rather than r
 ## Verified against a real export
 
 Validated against a real Civil 3D 2027 export (single TIN surface, 55k points, 110k faces, declared US Survey Feet, no `<CoordinateSystem>`): parses in well under a second, unit conversion matches the file's own `elevMax`/`elevMin` metadata exactly, and the imported mesh renders as a coherent, correctly oriented finished-grade surface with zero invalid faces. Multi-surface shared-origin alignment is currently only exercised by the synthetic `tests/fixtures/two_surfaces.xml` fixture — a real multi-surface export hasn't been tested yet.
-
