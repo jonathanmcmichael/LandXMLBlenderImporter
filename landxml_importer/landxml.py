@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
+import math
 from pathlib import Path
 from typing import Iterable
 import xml.etree.ElementTree as ET
@@ -29,6 +32,7 @@ class TinSurface:
     points: dict[str, tuple[float, float, float]]
     faces: tuple[tuple[str, str, str], ...]
     skipped_face_count: int = 0
+    skipped_face_reasons: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -37,6 +41,8 @@ class MeshData:
     vertices: tuple[tuple[float, float, float], ...]
     faces: tuple[tuple[int, int, int], ...]
     skipped_face_count: int
+    skipped_face_reasons: tuple[tuple[str, int], ...]
+    degenerate_face_count: int
 
 
 def _local_name(tag: str) -> str:
@@ -67,11 +73,14 @@ def _parse_surface(element: ET.Element, fallback_name: str, point_order: str) ->
         points[point_id] = (easting, northing, elevation)
 
     faces: list[tuple[str, str, str]] = []
-    skipped = 0
+    skipped_reasons: dict[str, int] = {}
     for face in _descendants(search_root, "F"):
         ids = face.text.split() if face.text else []
-        if len(ids) < 3 or any(point_id not in points for point_id in ids[:3]):
-            skipped += 1
+        if len(ids) != 3:
+            skipped_reasons["non_triangular"] = skipped_reasons.get("non_triangular", 0) + 1
+            continue
+        if any(point_id not in points for point_id in ids):
+            skipped_reasons["missing_point"] = skipped_reasons.get("missing_point", 0) + 1
             continue
         faces.append((ids[0], ids[1], ids[2]))
 
@@ -82,7 +91,8 @@ def _parse_surface(element: ET.Element, fallback_name: str, point_order: str) ->
         name=element.get("name") or fallback_name,
         points=points,
         faces=tuple(faces),
-        skipped_face_count=skipped,
+        skipped_face_count=sum(skipped_reasons.values()),
+        skipped_face_reasons=tuple(sorted(skipped_reasons.items())),
     )
 
 
@@ -144,10 +154,45 @@ def build_mesh_data(
         )
 
     faces = tuple(tuple(id_to_index[point_id] for point_id in face) for face in surface.faces)
+    degenerate_face_count = sum(
+        _is_degenerate_face(vertices, face_indices) for face_indices in faces
+    )
     return MeshData(
         name=surface.name,
         vertices=tuple(vertices),
         faces=faces,
         skipped_face_count=surface.skipped_face_count,
+        skipped_face_reasons=surface.skipped_face_reasons,
+        degenerate_face_count=degenerate_face_count,
     )
+
+
+def _is_degenerate_face(
+    vertices: list[tuple[float, float, float]], face: tuple[int, int, int]
+) -> bool:
+    """Return whether a source triangle has repeated vertices or zero area."""
+    if len(set(face)) != 3:
+        return True
+
+    first, second, third = (vertices[index] for index in face)
+    edge_one = tuple(second[index] - first[index] for index in range(3))
+    edge_two = tuple(third[index] - first[index] for index in range(3))
+    cross = (
+        edge_one[1] * edge_two[2] - edge_one[2] * edge_two[1],
+        edge_one[2] * edge_two[0] - edge_one[0] * edge_two[2],
+        edge_one[0] * edge_two[1] - edge_one[1] * edge_two[0],
+    )
+    return math.isclose(sum(component * component for component in cross), 0.0, abs_tol=1e-24)
+
+
+def geometry_fingerprint(
+    vertices: Iterable[tuple[float, float, float]], faces: Iterable[tuple[int, ...]]
+) -> str:
+    """Return a stable SHA-256 fingerprint of ordered mesh geometry."""
+    payload = {
+        "faces": [list(face) for face in faces],
+        "vertices": [list(vertex) for vertex in vertices],
+    }
+    encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 

@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## 0.2.0 - 2026-09-22
+
+- Add optional survey-coordinate E/N/Z pivot input while retaining local Blender geometry.
+- Preserve source face winding and remove automatic normal flipping and smooth-shading changes.
+- Reject non-triangular face records instead of truncating them, with structured skip diagnostics.
+- Warn about retained zero-area source triangles without changing topology.
+- Store source SHA-256 provenance and a raw ordered-geometry fingerprint on imported objects.
+- Add an Object menu integrity validator and lock imported object transforms.
+- Validate Blender's created vertex and face counts, rolling back the complete import if strict validation fails.
+
 ## 0.1.0 - 2026-09-16
 
 - Import authoritative LandXML TIN points and faces without retriangulation.

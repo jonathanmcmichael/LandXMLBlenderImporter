@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "landxml_tin_importer"
-version = "0.1.0"
+version = "0.2.0"
 name = "LandXML TIN Importer"
 tagline = "Import authoritative LandXML TIN surfaces"
 maintainer = "Jonathan McMichael"

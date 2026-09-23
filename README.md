@@ -4,6 +4,12 @@ A Blender 4.2+ extension for importing Civil 3D LandXML TIN surfaces without ret
 
 The importer treats the LandXML `<P>` point coordinates and `<F>` point-ID references as authoritative. Civil coordinates are mapped from `Northing, Easting, Elevation` to Blender `X = Easting`, `Y = Northing`, `Z = Elevation`. By default, one shared horizontal origin is subtracted from every surface in the file so large-coordinate precision is manageable while surfaces retain their relative placement.
 
+## Requirements
+
+- Blender 4.2 or later. Blender 5.2.2 LTS is the tested version.
+- A LandXML file containing one or more TIN `<Surface>` elements with `<P>` points and triangular `<F>` faces.
+- PowerShell and a locally installed Blender executable when using the Windows install script.
+
 ## Project layout
 
 ```text
@@ -22,14 +28,45 @@ This is intentionally only three extension files. The XML/domain code stays inde
 ## Import behavior
 
 - Preserves the source `<F>` triangulation; it does not generate a new TIN.
+- Preserves valid source triangle point order and winding; it does not correct normals or apply smooth shading.
 - Imports all valid TIN surfaces in the file.
 - Uses one shared origin so separate surfaces remain aligned.
-- Stores the original origin and source-unit metadata as Blender object custom properties.
+- Stores original origin, source-unit, source-file hash, and integrity metadata as Blender object custom properties.
 - Supports meters, international feet, and US survey feet as source units.
 - Converts imported coordinates to meters, matching Blender's conventional unit scale.
 - Leaves elevation unshifted by default while shifting Easting and Northing near zero.
 - Groups each import's surfaces into a new Blender Collection named `LandXML_<filename>`, so repeated imports stay organized instead of dumping loose objects into the scene.
-- Orients every triangle's normal upward and applies angle-based smooth shading. LandXML's `<F>` triangles don't guarantee winding, so each face's correct orientation is decided from its own geometry (a TIN is a heightfield — one elevation per Easting/Northing, so there are no true overhangs) rather than from neighbor-consistency algorithms, which can miss isolated triangulation islands that meet neighbors only at a single vertex — common around the long sliver triangles TINs produce.
+- Locks object location, rotation, and scale after import to reduce accidental transform edits.
+
+## Import workflow
+
+1. Choose **File → Import → LandXML TIN Surface (.xml)**.
+2. Select the `.xml` or `.landxml` file.
+3. Choose **Source Units** to match the coordinate units in the export. The default is US survey feet.
+4. Keep **Shift Near Origin** enabled unless source-coordinate placement near Blender's global origin is required.
+5. Enable **Use Survey Pivot** to enter a known source-coordinate Easting, Northing, and Elevation. Mesh vertices are located relative to this pivot while the exact source coordinates remain in custom properties.
+6. Keep **Validate Original TIN Faces** enabled to cancel the complete import if Blender's created vertex or face counts differ from the parsed source data.
+7. Use **Northing, Easting, Elevation** point order for standard LandXML 1.2 files. Try **Easting, Northing, Elevation** only when an imported terrain is mirrored or rotated.
+8. Review the **LandXML Import Validation** popup for the imported surface, vertex, and face totals plus any skipped or degenerate source faces.
+
+The import creates a `LandXML_<filename>` collection. Each surface object records its source path and SHA-256 digest, selected units, point order, origin, vertex count, face count, skipped-face diagnostics, degenerate-face count, and raw geometry fingerprint in Blender custom properties.
+
+## Supported input and limitations
+
+- Tested with a Civil 3D 2027 LandXML export and standard LandXML 1.2 `Northing Easting Elevation` point order.
+- Source units can be meters, international feet, or US survey feet. The imported mesh is converted to meters.
+- TIN faces must contain exactly three point IDs. Non-triangular records are skipped rather than truncated, and their reason is recorded in `landxml_skipped_face_reasons`.
+- Faces with unresolved point IDs are skipped; their count and reason are also recorded in `landxml_skipped_face_reasons`.
+- Zero-area, repeated-vertex, and collinear source triangles are retained without modification and counted in `landxml_degenerate_face_count`.
+- The importer does not automatically discover coordinate reference systems, parse breaklines, or independently apply boundaries. Civil 3D boundary clipping is represented by the authoritative `<F>` list.
+
+## TIN integrity
+
+LandXML points and triangles are authoritative. The importer does not retriangulate, fill disconnected islands, merge vertices, change face winding, or modify normals and shading. A strict import is atomic: if parsing or original-face validation fails, the new collection and its meshes are removed rather than leaving a partial result.
+
+Use **Object → Validate LandXML TIN Integrity** to compare the selected object's raw mesh coordinates and polygon loops against the stored import fingerprint. This intentionally ignores transforms and modifier output; it detects changes to the base mesh data itself. Object transforms are locked after import, but Blender Edit Mode, modifiers, and Python scripts can still alter a mesh. The validator identifies that divergence; it cannot prevent it.
+
+To recover a source coordinate from a local mesh vertex, divide its Blender coordinate by `landxml_unit_to_meters` and add `landxml_origin_easting`, `landxml_origin_northing`, and `landxml_origin_elevation` respectively. Pivot values use the selected source-unit system.
 
 ## Test outside Blender
 
@@ -47,7 +84,7 @@ One command rebuilds the extension and installs/enables it in Blender on Windows
 pwsh scripts/install_extension.ps1
 ```
 
-The script checks the standard blender.org installation first and then the Microsoft Store execution alias. **Restart Blender** (or disable/re-enable the extension in Preferences) afterward; Blender will not hot-reload an already-enabled extension's code.
+The script checks the standard Blender Foundation installation at `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe` first and then the Microsoft Store execution alias. Add another path to `blenderCandidates` in [scripts/install_extension.ps1](scripts/install_extension.ps1) when Blender is installed elsewhere. **Restart Blender** (or disable/re-enable the extension in Preferences) afterward; Blender will not hot-reload an already-enabled extension's code.
 
 To do it manually instead:
 
@@ -66,13 +103,11 @@ Use [GitHub Issues](https://github.com/jonathanmcmichael/LandXMLBlenderImporter/
 
 This project is licensed under the GNU General Public License v3.0 or later. See `LICENSE`.
 
-## Current boundary
+## Design boundaries
 
-The default point order is `Northing Easting Elevation` per the LandXML 1.2 standard, but this is exposed as an import option (`Point Order`) since some real-world exports reverse it — if a terrain looks mirrored or rotated 90°, switch it. Automatic coordinate-system discovery, breaklines, boundaries, and LandXML features other than authoritative TIN points/faces are deliberately out of scope.
+The default point order is `Northing Easting Elevation` per the LandXML 1.2 standard, but this is exposed as an import option (`Point Order`) since some real-world exports reverse it. Automatic coordinate-system discovery and LandXML features other than authoritative TIN points/faces are deliberately out of scope.
 
-Boundary clipping is intentionally not handled separately: Civil 3D bakes any applied surface boundary into which triangles appear in `<F>`, so the authoritative face list already reflects the correct clipped shape without needing to parse `<Boundaries>`.
-
-Long, thin ("sliver") triangles from the source TIN are left as-is rather than remeshed. They're geometrically valid — they represent genuinely dense point layout along linear features (curbs, centerlines, swales) — and tested edge-flip-only cleanup (Blender's Beautify Faces) barely helps: on the real 55k-point sample it reduced sliver triangles by only ~1.2%, because flipping the diagonal of an already-thin quad doesn't change the fact that all four of its points lie in a thin strip. Fixing this for real would require lossy simplification (decimation) or full retriangulation, both of which move away from exact point preservation, so they're left as a deliberate non-goal for now.
+Long, thin ("sliver") triangles from the source TIN are left as-is rather than remeshed. They can represent dense point layout along linear features such as curbs, centerlines, and swales. Fixing them would require lossy simplification or full retriangulation, both of which conflict with exact point and face preservation.
 
 ## Verified against a real export
 

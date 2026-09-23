@@ -2,48 +2,31 @@
 
 from __future__ import annotations
 
-import math
+import hashlib
+import json
 from pathlib import Path
 
-import bmesh
 import bpy
 
-from .landxml import UNIT_TO_METERS, build_mesh_data, parse_landxml, shared_origin
-
-_SMOOTH_ANGLE = math.radians(30)
+from .landxml import UNIT_TO_METERS, build_mesh_data, geometry_fingerprint, parse_landxml, shared_origin
 
 
-def _finalize_shading(obj: bpy.types.Object, mesh: bpy.types.Mesh) -> None:
-    """Recalculate consistent face normals and smooth-shade by angle.
+def object_geometry_fingerprint(obj: bpy.types.Object) -> str:
+    """Fingerprint raw mesh data, deliberately excluding modifiers and transforms."""
+    mesh = obj.data
+    vertices = tuple(tuple(vertex.co) for vertex in mesh.vertices)
+    faces = tuple(tuple(polygon.vertices) for polygon in mesh.polygons)
+    return geometry_fingerprint(vertices, faces)
 
-    LandXML's <F> triangles don't guarantee consistent winding, so raw
-    normals can be flipped; this fixes that while keeping real slope
-    breaks crisp and smoothing continuous terrain.
-    """
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    bm.normal_update()
 
-    # A TIN is a heightfield: every (easting, northing) maps to exactly one
-    # elevation, so there are no true overhangs and each triangle's correct
-    # "up" winding can be decided from its own geometry alone. Don't use
-    # neighbor-consistency algorithms like recalc_face_normals here -- a TIN
-    # is an open sheet that can have separate triangulation islands meeting
-    # only at a single shared vertex (common around long sliver triangles),
-    # and consistency propagation can't cross that gap, leaving isolated
-    # patches flipped even after correcting the mesh's overall orientation.
-    to_flip = [face for face in bm.faces if face.normal.z < 0]
-    if to_flip:
-        bmesh.ops.reverse_faces(bm, faces=to_flip)
-
-    bm.to_mesh(mesh)
-    bm.free()
-    mesh.update()
-
-    with bpy.context.temp_override(
-        active_object=obj, selected_editable_objects=[obj], selected_objects=[obj], object=obj
-    ):
-        bpy.ops.object.shade_smooth_by_angle(angle=_SMOOTH_ANGLE)
+def _remove_import(collection: bpy.types.Collection, objects: list[bpy.types.Object]) -> None:
+    """Remove a failed import so incomplete data cannot look authoritative."""
+    for obj in objects:
+        mesh = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
+    bpy.data.collections.remove(collection)
 
 
 def import_landxml(
@@ -52,35 +35,62 @@ def import_landxml(
     source_units: str,
     shift_to_origin: bool,
     point_order: str = "NEZ",
+    custom_origin: tuple[float, float, float] | None = None,
+    validate_original_faces: bool = True,
 ):
     surfaces = parse_landxml(filepath, point_order=point_order)
-    origin = shared_origin(surfaces) if shift_to_origin else (0.0, 0.0, 0.0)
+    origin = custom_origin if custom_origin is not None else (
+        shared_origin(surfaces) if shift_to_origin else (0.0, 0.0, 0.0)
+    )
+    source_path = Path(filepath)
+    source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
     imported_objects = []
 
     collection = bpy.data.collections.new(f"LandXML_{Path(filepath).stem}")
     bpy.context.collection.children.link(collection)
 
-    for surface in surfaces:
-        data = build_mesh_data(surface, origin=origin, source_units=source_units)
-        mesh = bpy.data.meshes.new(data.name)
-        mesh.from_pydata(data.vertices, [], data.faces)
-        mesh.update()
+    try:
+        for surface in surfaces:
+            data = build_mesh_data(surface, origin=origin, source_units=source_units)
+            mesh = bpy.data.meshes.new(data.name)
+            mesh.from_pydata(data.vertices, [], data.faces)
+            mesh.update()
 
-        obj = bpy.data.objects.new(data.name, mesh)
-        collection.objects.link(obj)
-        _finalize_shading(obj, mesh)
-        obj["landxml_source"] = str(Path(filepath))
-        obj["landxml_source_units"] = source_units
-        obj["landxml_point_order"] = point_order
-        obj["landxml_unit_to_meters"] = UNIT_TO_METERS[source_units]
-        obj["landxml_origin_easting"] = origin[0]
-        obj["landxml_origin_northing"] = origin[1]
-        obj["landxml_origin_elevation"] = origin[2]
-        obj["landxml_vertex_count"] = len(data.vertices)
-        obj["landxml_face_count"] = len(data.faces)
-        obj["landxml_skipped_face_count"] = data.skipped_face_count
-        obj.select_set(True)
-        imported_objects.append(obj)
+            obj = bpy.data.objects.new(data.name, mesh)
+            collection.objects.link(obj)
+            imported_objects.append(obj)
+
+            if validate_original_faces and (
+                len(mesh.vertices) != len(data.vertices) or len(mesh.polygons) != len(data.faces)
+            ):
+                raise RuntimeError(
+                    f"Surface '{data.name}' failed original-face validation: expected "
+                    f"{len(data.vertices)} vertices and {len(data.faces)} faces, got "
+                    f"{len(mesh.vertices)} vertices and {len(mesh.polygons)} faces."
+                )
+
+            obj["landxml_source"] = str(source_path)
+            obj["landxml_source_sha256"] = source_sha256
+            obj["landxml_source_units"] = source_units
+            obj["landxml_point_order"] = point_order
+            obj["landxml_unit_to_meters"] = UNIT_TO_METERS[source_units]
+            obj["landxml_origin_easting"] = origin[0]
+            obj["landxml_origin_northing"] = origin[1]
+            obj["landxml_origin_elevation"] = origin[2]
+            obj["landxml_vertex_count"] = len(data.vertices)
+            obj["landxml_face_count"] = len(data.faces)
+            obj["landxml_skipped_face_count"] = data.skipped_face_count
+            obj["landxml_skipped_face_reasons"] = json.dumps(dict(data.skipped_face_reasons))
+            obj["landxml_degenerate_face_count"] = data.degenerate_face_count
+            obj["landxml_geometry_fingerprint"] = geometry_fingerprint(data.vertices, data.faces)
+            obj["landxml_validation_passed"] = validate_original_faces
+            obj.lock_location = (True, True, True)
+            obj.lock_rotation = (True, True, True)
+            obj.lock_scale = (True, True, True)
+            obj.select_set(True)
+    except Exception:
+        _remove_import(collection, imported_objects)
+        raise
 
     bpy.context.view_layer.objects.active = imported_objects[-1]
     return imported_objects
