@@ -25,13 +25,13 @@ try {
     & $blenderExecutable --command extension validate landxml_importer
 
     Write-Host "Building extension..."
-    & $blenderExecutable --command extension build --source-dir landxml_importer
+    & $blenderExecutable --command extension build --source-dir landxml_importer --split-platforms
     # The Microsoft Store alias may return control before Blender finishes.
     Start-Sleep -Seconds 3
 
     $zip = Get-ChildItem "$repoRoot\landxml_tin_importer-*.zip" -ErrorAction SilentlyContinue
     if (-not $zip) {
-        throw "Build did not produce a landxml_tin_importer-*.zip."
+        throw "Build did not produce any landxml_tin_importer-*.zip files."
     }
 
     Write-Host "Installing and enabling in Blender..."

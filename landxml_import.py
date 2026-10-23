@@ -19,7 +19,7 @@ def find_children_by_tag(root, tag_name):
     ]
 
 
-def import_landxml_surface(filepath, shift_to_origin=True):
+def _legacy_import_landxml_surface(filepath, shift_to_origin=True):
     filepath = Path(filepath)
 
     tree = ET.parse(filepath)
@@ -261,6 +261,18 @@ def import_landxml_surface(filepath, shift_to_origin=True):
     return imported_objects
 
 
+def import_landxml_surface(filepath, shift_to_origin=True):
+    from landxml_importer.blender_import import import_landxml
+
+    result = import_landxml(
+        str(filepath),
+        source_units="AUTO",
+        shift_to_origin=shift_to_origin,
+        point_order="NEZ",
+    )
+    return list(result.objects)
+
+
 # =============================================================
 # Blender Import Operator
 # =============================================================
@@ -307,9 +319,15 @@ class IMPORT_OT_landxml_surface(Operator, ImportHelper):
 
             return {'CANCELLED'}
 
+        surface_count = sum("landxml_face_count" in obj for obj in imported)
+        curve_count = sum(obj.type == "CURVE" for obj in imported)
+        point_count = sum(obj.get("landxml_point_count", 0) for obj in imported)
+        summary = f"Imported {surface_count} surface(s), {curve_count} linework object(s)"
+        if point_count:
+            summary += f", {point_count} survey point(s)"
         self.report(
             {'INFO'},
-            f"Imported {len(imported)} LandXML surface(s)"
+            summary
         )
 
         return {'FINISHED'}
