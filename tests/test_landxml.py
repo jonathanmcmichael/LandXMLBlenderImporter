@@ -36,57 +36,57 @@ class LandXMLTests(unittest.TestCase):
         self.assertEqual(self.surfaces[0].faces, (("1", "2", "3"),))
 
     def test_document_model_preserves_non_surface_records_and_units(self):
-                document = self._parse_document(
-                        """
-                        <Units><Imperial linearUnit="foot" /></Units>
-                        <Project name="Campus" />
-                        <SourceData><Boundaries><Boundary bndType="outer" edgeTrim="true">
-                            <PntList3D>0 0 0 1 0 0 1 1 0</PntList3D>
-                        </Boundary></Boundaries><Breaklines>
-                            <Breakline brkType="standard"><PntList3D>0 0 0 1 1 0</PntList3D></Breakline>
-                        </Breaklines></SourceData>
-                        <Surfaces><Surface name="Test"><Definition>
-                            <Pnts><P id="a">0 0 0</P><P id="b">0 1 0</P><P id="c">1 0 0</P></Pnts>
-                            <Faces><F>a b c</F></Faces>
-                        </Definition></Surface></Surfaces>
-                        """
-                )
-                flattened = json.dumps(document.root.to_dict())
-                streamed = "".join(document.root.iter_json_chunks())
-                self.assertEqual(document.declared_linear_unit, "foot")
-                self.assertEqual(document.source_units, "US_SURVEY_FEET")
-                self.assertIsNotNone(document.unit_warning)
-                self.assertEqual(len(document.surfaces), 1)
-                self.assertIn('"name": "Project"', flattened)
-                self.assertIn('"name": "Boundary"', flattened)
-                self.assertIn('"edgeTrim": "true"', flattened)
-                self.assertIn('"name": "Breakline"', flattened)
-                self.assertIn('"brkType": "standard"', flattened)
-                self.assertEqual(json.loads(streamed), document.root.to_dict())
+        document = self._parse_document(
+            """
+            <Units><Imperial linearUnit="foot" /></Units>
+            <Project name="Campus" />
+            <SourceData><Boundaries><Boundary bndType="outer" edgeTrim="true">
+                <PntList3D>0 0 0 1 0 0 1 1 0</PntList3D>
+            </Boundary></Boundaries><Breaklines>
+                <Breakline brkType="standard"><PntList3D>0 0 0 1 1 0</PntList3D></Breakline>
+            </Breaklines></SourceData>
+            <Surfaces><Surface name="Test"><Definition>
+                <Pnts><P id="a">0 0 0</P><P id="b">0 1 0</P><P id="c">1 0 0</P></Pnts>
+                <Faces><F>a b c</F></Faces>
+            </Definition></Surface></Surfaces>
+            """
+        )
+        flattened = json.dumps(document.root.to_dict())
+        streamed = "".join(document.root.iter_json_chunks())
+        self.assertEqual(document.declared_linear_unit, "foot")
+        self.assertEqual(document.source_units, "US_SURVEY_FEET")
+        self.assertIsNotNone(document.unit_warning)
+        self.assertEqual(len(document.surfaces), 1)
+        self.assertIn('"name": "Project"', flattened)
+        self.assertIn('"name": "Boundary"', flattened)
+        self.assertIn('"edgeTrim": "true"', flattened)
+        self.assertIn('"name": "Breakline"', flattened)
+        self.assertIn('"brkType": "standard"', flattened)
+        self.assertEqual(json.loads(streamed), document.root.to_dict())
 
     def test_plan_feature_lines_and_arcs_become_one_curve_record(self):
-                document = self._parse_document(
-                        """
-                        <PlanFeatures><PlanFeature name="Campus Edge">
-                            <CoordGeom><Line><Start>0 0 0</Start><End>0 2 0</End></Line>
-                                <Curve rot="ccw" radius="2"><Start>0 2 0</Start><Center>0 0</Center><End>2 0 2</End></Curve>
-                            </CoordGeom><Feature code="FeatureLine"><Property label="layer" value="C-TOPO-FEAT" /></Feature>
-                        </PlanFeature></PlanFeatures>
-                        """
-                )
-                feature = next(curve for curve in document.curves if curve.category == "PlanFeature")
-                converted = build_curve_data(feature, source_units="INTERNATIONAL_FEET")
-                self.assertEqual(feature.name, "Campus Edge")
-                self.assertEqual(len(feature.points), 20)
-                self.assertEqual(feature.properties, (("layer", "C-TOPO-FEAT"),))
-                self.assertAlmostEqual(converted.points[-1][2], 0.6096)
+        document = self._parse_document(
+            """
+            <PlanFeatures><PlanFeature name="Campus Edge">
+                <CoordGeom><Line><Start>0 0 0</Start><End>0 2 0</End></Line>
+                    <Curve rot="ccw" radius="2"><Start>0 2 0</Start><Center>0 0</Center><End>2 0 2</End></Curve>
+                </CoordGeom><Feature code="FeatureLine"><Property label="layer" value="C-TOPO-FEAT" /></Feature>
+            </PlanFeature></PlanFeatures>
+            """
+        )
+        feature = next(curve for curve in document.curves if curve.category == "PlanFeature")
+        converted = build_curve_data(feature, source_units="INTERNATIONAL_FEET")
+        self.assertEqual(feature.name, "Campus Edge")
+        self.assertEqual(len(feature.points), 20)
+        self.assertEqual(feature.properties, (("layer", "C-TOPO-FEAT"),))
+        self.assertAlmostEqual(converted.points[-1][2], 0.6096)
 
     def test_unit_resolution_supports_override_and_ambiguous_foot_warning(self):
-                self.assertEqual(resolve_source_units("meter"), ("METERS", None))
-                self.assertEqual(resolve_source_units("foot", "INTERNATIONAL_FEET"), ("INTERNATIONAL_FEET", None))
-                source_units, warning = resolve_source_units("foot")
-                self.assertEqual(source_units, "US_SURVEY_FEET")
-                self.assertIsNotNone(warning)
+        self.assertEqual(resolve_source_units("meter"), ("METERS", None))
+        self.assertEqual(resolve_source_units("foot", "INTERNATIONAL_FEET"), ("INTERNATIONAL_FEET", None))
+        source_units, warning = resolve_source_units("foot")
+        self.assertEqual(source_units, "US_SURVEY_FEET")
+        self.assertIsNotNone(warning)
 
     def test_cgpoint_records_are_mapped_to_blender_points(self):
         document = self._parse_document(
@@ -138,95 +138,95 @@ class LandXMLTests(unittest.TestCase):
         self.assertEqual(dict(location.attributes)["desc"], "elevation point")
 
     def test_pipe_centerline_resolves_point_references_and_coordinates(self):
-                document = self._parse_document(
-                        """
-                        <PipeNetworks><PipeNetwork name="storm" pipeNetType="storm">
-                            <Structs>
-                                <Struct name="node-a"><Center>100 200 3</Center><Invert refPipe="pipe-1" elev="2" /></Struct>
-                                <Struct name="node-b"><Center>102 202</Center><Invert refPipe="pipe-1" elev="1" /></Struct>
-                            </Structs>
-                            <Pipes><Pipe name="pipe-1" refStart="node-a" refEnd="node-b" /></Pipes>
-                        </PipeNetwork></PipeNetworks>
-                        """
-                )
-                pipe = next(curve for curve in document.curves if curve.category == "Pipe")
-                self.assertEqual(pipe.name, "pipe-1")
-                self.assertEqual(pipe.points, ((200.0, 100.0, 2.0), (202.0, 102.0, 1.0)))
-                structures = [point for point in document.points if point.category == "Struct"]
-                self.assertEqual(len(structures), 2)
-                self.assertEqual(dict(structures[0].attributes)["Invert_elev"], "2")
+        document = self._parse_document(
+            """
+            <PipeNetworks><PipeNetwork name="storm" pipeNetType="storm">
+                <Structs>
+                    <Struct name="node-a"><Center>100 200 3</Center><Invert refPipe="pipe-1" elev="2" /></Struct>
+                    <Struct name="node-b"><Center>102 202</Center><Invert refPipe="pipe-1" elev="1" /></Struct>
+                </Structs>
+                <Pipes><Pipe name="pipe-1" refStart="node-a" refEnd="node-b" /></Pipes>
+            </PipeNetwork></PipeNetworks>
+            """
+        )
+        pipe = next(curve for curve in document.curves if curve.category == "Pipe")
+        self.assertEqual(pipe.name, "pipe-1")
+        self.assertEqual(pipe.points, ((200.0, 100.0, 2.0), (202.0, 102.0, 1.0)))
+        structures = [point for point in document.points if point.category == "Struct"]
+        self.assertEqual(len(structures), 2)
+        self.assertEqual(dict(structures[0].attributes)["Invert_elev"], "2")
 
     def test_profiles_and_cross_sections_keep_local_station_coordinates(self):
-                document = self._parse_document(
-                        """
-                        <Alignments><Alignment name="Road A"><Profile name="Design">
-                            <ProfAlign name="Finished Grade"><PVI>0 100</PVI><PVI>20 101</PVI></ProfAlign>
-                        </Profile></Alignment></Alignments>
-                        <CrossSects><CrossSect sta="12.5"><CrossSectSurf name="Existing Ground">
-                            <PntList2D>-3 1 3 2</PntList2D>
-                        </CrossSectSurf></CrossSect></CrossSects>
-                        """
-                )
-                profile = next(curve for curve in document.curves if curve.category == "Profile")
-                section = next(curve for curve in document.curves if curve.category == "CrossSectSurf")
-                profile_data = build_curve_data(profile, origin=(500, 500, 0), source_units="INTERNATIONAL_FEET")
-                section_data = build_curve_data(section, origin=(500, 500, 0), source_units="INTERNATIONAL_FEET")
-                self.assertEqual(profile.points, ((0.0, 0.0, 100.0), (20.0, 0.0, 101.0)))
-                self.assertEqual(section.points, ((-3.0, 12.5, 1.0), (3.0, 12.5, 2.0)))
-                self.assertAlmostEqual(profile_data.points[1][0], 6.096)
-                self.assertAlmostEqual(section_data.points[0][0], -0.9144)
-                self.assertAlmostEqual(section_data.points[0][1], 3.81)
+        document = self._parse_document(
+            """
+            <Alignments><Alignment name="Road A"><Profile name="Design">
+                <ProfAlign name="Finished Grade"><PVI>0 100</PVI><PVI>20 101</PVI></ProfAlign>
+            </Profile></Alignment></Alignments>
+            <CrossSects><CrossSect sta="12.5"><CrossSectSurf name="Existing Ground">
+                <PntList2D>-3 1 3 2</PntList2D>
+            </CrossSectSurf></CrossSect></CrossSects>
+            """
+        )
+        profile = next(curve for curve in document.curves if curve.category == "Profile")
+        section = next(curve for curve in document.curves if curve.category == "CrossSectSurf")
+        profile_data = build_curve_data(profile, origin=(500, 500, 0), source_units="INTERNATIONAL_FEET")
+        section_data = build_curve_data(section, origin=(500, 500, 0), source_units="INTERNATIONAL_FEET")
+        self.assertEqual(profile.points, ((0.0, 0.0, 100.0), (20.0, 0.0, 101.0)))
+        self.assertEqual(section.points, ((-3.0, 12.5, 1.0), (3.0, 12.5, 2.0)))
+        self.assertAlmostEqual(profile_data.points[1][0], 6.096)
+        self.assertAlmostEqual(section_data.points[0][0], -0.9144)
+        self.assertAlmostEqual(section_data.points[0][1], 3.81)
 
     def test_outer_boundary_clips_faces_across_concave_gulf(self):
-                document = self._parse_document(
-                        """
-                        <SourceData><Boundaries><Boundary bndType="outer" edgeTrim="true">
-                            <PntList3D>0 0 0 0 4 0 4 4 4 4 3 4 1 3 1 1 1 1 4 1 4 4 0 4 0 0 0</PntList3D>
-                        </Boundary></Boundaries></SourceData>
-                        <Surfaces><Surface name="Test"><Definition>
-                            <Pnts><P id="1">0 0 0</P><P id="2">0 4 0</P><P id="3">4 4 4</P><P id="4">4 0 4</P></Pnts>
-                            <Faces><F>1 2 3</F><F>1 3 4</F></Faces>
-                        </Definition></Surface></Surfaces>
-                        """
-                )
-                mesh = build_mesh_data(document.surfaces[0])
-                from shapely.geometry import Polygon
+        document = self._parse_document(
+            """
+            <SourceData><Boundaries><Boundary bndType="outer" edgeTrim="true">
+                <PntList3D>0 0 0 0 4 0 4 4 4 4 3 4 1 3 1 1 1 1 4 1 4 4 0 4 0 0 0</PntList3D>
+            </Boundary></Boundaries></SourceData>
+            <Surfaces><Surface name="Test"><Definition>
+                <Pnts><P id="1">0 0 0</P><P id="2">0 4 0</P><P id="3">4 4 4</P><P id="4">4 0 4</P></Pnts>
+                <Faces><F>1 2 3</F><F>1 3 4</F></Faces>
+            </Definition></Surface></Surfaces>
+            """
+        )
+        mesh = build_mesh_data(document.surfaces[0])
+        from shapely.geometry import Polygon
 
-                boundary = Polygon([(east, north) for east, north, _ in document.surfaces[0].boundaries[0].points])
-                output_triangles = [
-                        Polygon([(mesh.vertices[index][0], mesh.vertices[index][1]) for index in face])
-                        for face in mesh.faces
-                ]
-                self.assertEqual(mesh.source_face_count, 2)
-                self.assertEqual(mesh.boundary_clipped_face_count, 2)
-                self.assertGreater(len(mesh.faces), mesh.source_face_count)
-                self.assertAlmostEqual(sum(triangle.area for triangle in output_triangles), boundary.area)
-                self.assertTrue(all(boundary.covers(triangle) for triangle in output_triangles))
-                self.assertTrue(all(math.isclose(z, y, abs_tol=1e-9) for _, y, z in mesh.vertices))
+        boundary = Polygon([(east, north) for east, north, _ in document.surfaces[0].boundaries[0].points])
+        output_triangles = [
+            Polygon([(mesh.vertices[index][0], mesh.vertices[index][1]) for index in face])
+            for face in mesh.faces
+        ]
+        self.assertEqual(mesh.source_face_count, 2)
+        self.assertEqual(mesh.boundary_clipped_face_count, 2)
+        self.assertGreater(len(mesh.faces), mesh.source_face_count)
+        self.assertAlmostEqual(sum(triangle.area for triangle in output_triangles), boundary.area)
+        self.assertTrue(all(boundary.covers(triangle) for triangle in output_triangles))
+        self.assertTrue(all(math.isclose(z, y, abs_tol=1e-9) for _, y, z in mesh.vertices))
 
     def test_hide_boundary_removes_interior_faces(self):
-                document = self._parse_document(
-                        """
-                        <SourceData><Boundaries>
-                            <Boundary bndType="outer" edgeTrim="true"><PntList3D>0 0 0 0 10 0 10 10 10 10 0 10 0 0 0</PntList3D></Boundary>
-                            <Boundary bndType="hide" edgeTrim="true"><PntList3D>4 4 4 4 6 4 6 6 6 6 4 6 4 4 4</PntList3D></Boundary>
-                        </Boundaries></SourceData>
-                        <Surfaces><Surface name="Test"><Definition>
-                            <Pnts><P id="1">0 0 0</P><P id="2">0 10 0</P><P id="3">10 10 10</P><P id="4">10 0 10</P></Pnts>
-                            <Faces><F>1 2 3</F><F>1 3 4</F></Faces>
-                        </Definition></Surface></Surfaces>
-                        """
-                )
-                mesh = build_mesh_data(document.surfaces[0])
-                from shapely.geometry import Polygon
+        document = self._parse_document(
+            """
+            <SourceData><Boundaries>
+                <Boundary bndType="outer" edgeTrim="true"><PntList3D>0 0 0 0 10 0 10 10 10 10 0 10 0 0 0</PntList3D></Boundary>
+                <Boundary bndType="hide" edgeTrim="true"><PntList3D>4 4 4 4 6 4 6 6 6 6 4 6 4 4 4</PntList3D></Boundary>
+            </Boundaries></SourceData>
+            <Surfaces><Surface name="Test"><Definition>
+                <Pnts><P id="1">0 0 0</P><P id="2">0 10 0</P><P id="3">10 10 10</P><P id="4">10 0 10</P></Pnts>
+                <Faces><F>1 2 3</F><F>1 3 4</F></Faces>
+            </Definition></Surface></Surfaces>
+            """
+        )
+        mesh = build_mesh_data(document.surfaces[0])
+        from shapely.geometry import Polygon
 
-                expected = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)], holes=[[(4, 4), (6, 4), (6, 6), (4, 6)]])
-                triangles = [
-                        Polygon([(mesh.vertices[index][0], mesh.vertices[index][1]) for index in face])
-                        for face in mesh.faces
-                ]
-                self.assertAlmostEqual(sum(triangle.area for triangle in triangles), expected.area)
-                self.assertTrue(all(expected.covers(triangle) for triangle in triangles))
+        expected = Polygon([(0, 0), (10, 0), (10, 10), (0, 10)], holes=[[(4, 4), (6, 4), (6, 6), (4, 6)]])
+        triangles = [
+            Polygon([(mesh.vertices[index][0], mesh.vertices[index][1]) for index in face])
+            for face in mesh.faces
+        ]
+        self.assertAlmostEqual(sum(triangle.area for triangle in triangles), expected.area)
+        self.assertTrue(all(expected.covers(triangle) for triangle in triangles))
 
     def test_boundaries_attach_to_their_enclosing_surface(self):
         document = self._parse_document(
