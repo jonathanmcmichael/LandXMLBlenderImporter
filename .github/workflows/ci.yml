@@ -72,7 +72,9 @@ jobs:
         run: ~/blender/blender --command extension validate landxml_importer
 
       - name: Build per-platform ZIPs
-        run: ~/blender/blender --command extension build --source-dir landxml_importer --output-dir dist --split-platforms
+        run: |
+          mkdir -p dist # Blender does not create the output directory
+          ~/blender/blender --command extension build --source-dir landxml_importer --output-dir dist --split-platforms
 
       - name: Smoke-test linux-x64 ZIP in Blender
         run: |
