@@ -1,20 +1,33 @@
-# LandXML TIN Importer Roadmap
+# LandXML Importer Roadmap
 
 ## Purpose
 
-This roadmap builds on the `v0.1.0` baseline: a Blender 4.2+ extension
-that imports authoritative LandXML TIN points and faces, preserves
-multi-surface alignment, and handles common Civil 3D coordinate conventions.
+This roadmap tracks a Blender 5.2+ importer that turns LandXML documents into
+useful Blender geometry and structured metadata. The parser preserves all XML
+elements, namespaces, attributes, text, and order; geometry adapters convert
+recognized LandXML entities to meshes, curves, or point clouds.
 
 The ordering intentionally protects source-data integrity before adding
 convenience features or release automation.
 
 ## Principles
 
-- Preserve the source `<P>` point data and `<F>` triangulation without retriangulating.
+- Preserve source records in reconstructible Blender metadata; report source and output geometry separately.
+- Apply edge-trim boundaries to working TINs without discarding source face records.
 - Make unsupported or invalid source data visible rather than silently changing it.
 - Keep XML parsing independent of Blender so it remains fast and testable.
-- Keep scope focused on TIN surface import; breaklines, boundaries, and automatic coordinate-system discovery remain separate future decisions.
+- Route all importer entry points through one parser and conversion core.
+
+## Current Parity Coverage
+
+- [x] Pin LandXML 1.2 XSD and retain every source element, namespace, attribute, text value, mixed-content tail, and sibling order as indexed Blender JSONL Text data.
+- [x] Convert surfaces with edge-trim outer/hide boundaries, boundaries, breaklines, PlanFeatures, generic `CoordGeom` lines/arcs/irregular lines, pipes/structures, profile alignments, cross-section surfaces, CgPoints, and Locations to native Blender geometry.
+- [x] Add an Object-menu operation to mark existing mesh edges aligned with breaklines as sharp and/or UV seams, with a match report and no topology changes.
+- [x] Resolve declared LandXML units with explicit overrides and warning for ambiguous generic feet.
+- [x] Route every import through the extension's shared parser and conversion core; the legacy root `landxml_import.py` script has been removed.
+- [x] Validate with schema-backed tests and Blender 5.2 import of the supplied Civil 3D 2027 export.
+- [ ] Add specialized geometry adapters for remaining schema types such as roadway design/traffic records, survey observations, spirals, and volume geometry. These are currently preserved in structured metadata.
+- [ ] Verify the per-platform Shapely wheels by installing each split build on macOS and Linux as well as Windows.
 
 ## Phase 1: Data Integrity and Parser Coverage
 
@@ -22,6 +35,7 @@ convenience features or release automation.
 
 ### Phase 1 Work
 
+- [x] Pin the official LandXML 1.2 XSD and test that specialized adapters are schema-defined while unadapted elements/attributes remain in the generic record tree.
 - [ ] Define the handling of `<F>` elements with more than three point IDs in `landxml_importer/landxml.py`.
   - Preferred behavior: skip non-triangle faces, increment the skipped-face count, and retain a separate reason/count for unsupported face topology.
   - Do not silently truncate an n-gon to its first three IDs.
@@ -78,10 +92,10 @@ convenience features or release automation.
 
 ### Phase 4 Work
 
-- [ ] Add a CI workflow that runs the Blender-independent unit tests on supported Python versions.
-- [ ] Add an extension validation/build job using Blender's command-line extension tooling.
-- [ ] Publish the supported Blender versions and CI matrix in the repository documentation.
-- [ ] Add a release checklist covering version updates, changelog entries, extension validation, ZIP creation, and a manual Blender smoke test.
+- [x] Add a CI workflow that runs the Blender-independent unit tests on supported Python versions.
+- [x] Add an extension validation/build job using Blender's command-line extension tooling, plus a headless install-and-import smoke test.
+- [x] Publish the supported Blender versions and CI matrix in the repository documentation.
+- [x] Add a release checklist covering version updates, changelog entries, extension validation, ZIP creation, and a Blender smoke test.
 
 ### Phase 4 Completion Criteria
 
@@ -94,9 +108,9 @@ convenience features or release automation.
 
 ### Phase 5 Work
 
-- [ ] Confirm `landxml_import.py` is not needed for backwards compatibility or external users.
-- [ ] Delete it if unneeded, or move it to an explicitly labelled example/migration location with a deprecation note.
-- [ ] Keep the packaged extension limited to `landxml_importer/` and update project-layout documentation after cleanup.
+- [x] Confirm `landxml_import.py` is not needed for backwards compatibility or external users.
+- [x] Delete it.
+- [x] Keep the packaged extension limited to `landxml_importer/` and update project-layout documentation after cleanup.
 - [ ] Add lightweight contributor guidance: local test command, extension build command, and fixture expectations.
 
 ### Phase 5 Completion Criteria
@@ -112,9 +126,9 @@ convenience features or release automation.
 4. Add Phase 4 CI before the next feature release.
 5. Complete Phase 5 after confirming no users depend on the legacy script.
 
-## Out of Scope for This Roadmap
+## Deliberate Limits
 
 - Retriangulation, decimation, or automatic sliver-triangle cleanup.
-- Parsing breaklines and boundaries independently of the authoritative face list.
-- Automatic coordinate reference system discovery or georeferencing transforms.
-- General LandXML feature support beyond authoritative TIN surfaces.
+- Automatic coordinate reference system discovery or reprojection. Orthophoto draping requires the image to already share the LandXML's CRS and units.
+- Vendor-specific extensions are retained as source records but are not guaranteed semantic geometry adapters.
+- CAD-equivalent editability; outputs use Blender-native meshes, curves, and point clouds with LandXML semantics in metadata.

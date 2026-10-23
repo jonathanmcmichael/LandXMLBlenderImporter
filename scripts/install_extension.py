@@ -7,6 +7,7 @@ saving preferences so it stays enabled across restarts.
 
 import glob
 import os
+import platform
 import sys
 
 import bpy
@@ -15,13 +16,22 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ADDON_MODULE = "bl_ext.user_default.landxml_tin_importer"
 
 
+def _platform_suffix():
+    """Return the `--split-platforms` ZIP suffix for this machine, e.g. "windows_x64"."""
+    system = {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
+    machine = platform.machine().lower()
+    arch = "arm64" if machine in {"arm64", "aarch64"} else "x64"
+    return f"{system}_{arch}"
+
+
 def main():
+    pattern = f"landxml_tin_importer-*-{_platform_suffix()}.zip"
     zips = sorted(
-        glob.glob(os.path.join(REPO_ROOT, "landxml_tin_importer-*.zip")),
+        glob.glob(os.path.join(REPO_ROOT, pattern)),
         key=os.path.getmtime,
     )
     if not zips:
-        print("ERROR: no landxml_tin_importer-*.zip found in repo root; build it first.")
+        print(f"ERROR: no {pattern} found in repo root; build it first.")
         sys.exit(1)
     zip_path = zips[-1]
 

@@ -2,30 +2,31 @@
 
 ## Name
 
-LandXML TIN Importer
+LandXML Importer
 
 ## Tagline
 
-Import authoritative LandXML TIN surfaces
+Import LandXML terrain and civil linework
 
 ## Summary
 
-Import Civil 3D LandXML terrain surfaces directly into Blender while preserving the source point-and-face triangulation.
+Import LandXML terrain and civil linework into Blender, with a structured record of every source XML element and attribute.
 
 ## Description
 
-LandXML TIN Importer creates Blender meshes from the authoritative `<P>` points and `<F>` faces in LandXML terrain exports. It does not regenerate or simplify the source triangulation.
+LandXML Importer creates Blender meshes from `<P>` points and `<F>` faces, applies edge-trim boundaries to the working TIN, and imports boundaries, breaklines, alignments, parcels, pipes, profiles, cross-sections, PlanFeatures, CgPoints, Locations, and structures as separate native curves or point-cloud meshes where their geometry is recognized. Every source element and attribute remains in indexed JSONL Text datablocks linked to the import collection; other schema entities remain structured there.
 
-The importer maps civil Northing, Easting, and Elevation coordinates to Blender axes, supports meters and both common foot definitions, and can shift large horizontal coordinates near the Blender origin to avoid precision problems. The original geospatial origin and import details remain available as object custom properties.
+The importer maps civil Northing, Easting, and Elevation coordinates to Blender axes, reads declared linear units with overrides for ambiguity, and can shift large horizontal coordinates near the Blender origin. Source and output face counts, units, object categories, and geospatial origins are retained in custom properties.
 
 Multiple surfaces from one file share the same local origin and remain aligned. Each import is placed in its own Blender collection.
 
 ## Primary workflow
 
 1. In Civil 3D, export the surface to LandXML with **Points and Faces** included.
-2. In Blender, choose **File → Import → LandXML TIN Surface (.xml)**.
-3. Select the source units and point order.
+2. In Blender, choose **File → Import → LandXML Data (.xml)**.
+3. Leave units on automatic detection or select an explicit override; choose the point order.
 4. Keep **Shift Near Origin** enabled for large civil coordinates.
+5. Select an imported surface and choose **Object → Use Breaklines on Surface** to mark matching TIN edges sharp, as UV seams, or both.
 
 ## Support
 

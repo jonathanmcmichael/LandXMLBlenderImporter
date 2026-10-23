@@ -1,0 +1,2 @@
+# Byte-exact: tests pin this file's SHA-256, so Git must not convert its line endings.
+tests/fixtures/landxml-1.2.xsd -text
