@@ -6,3 +6,8 @@ __pycache__/
 # Real client/project LandXML exports for local testing only — never commit these.
 /samples/
 
+.venv/
+dist/
+
+# Fetched from PyPI at build time by scripts/fetch_wheels.py.
+/landxml_importer/wheels/

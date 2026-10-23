@@ -24,7 +24,7 @@ convenience features or release automation.
 - [x] Convert surfaces with edge-trim outer/hide boundaries, boundaries, breaklines, PlanFeatures, generic `CoordGeom` lines/arcs/irregular lines, pipes/structures, profile alignments, cross-section surfaces, CgPoints, and Locations to native Blender geometry.
 - [x] Add an Object-menu operation to mark existing mesh edges aligned with breaklines as sharp and/or UV seams, with a match report and no topology changes.
 - [x] Resolve declared LandXML units with explicit overrides and warning for ambiguous generic feet.
-- [x] Use a shared implementation from both extension and legacy import entry points.
+- [x] Route every import through the extension's shared parser and conversion core; the legacy root `landxml_import.py` script has been removed.
 - [x] Validate with schema-backed tests and Blender 5.2 import of the supplied Civil 3D 2027 export.
 - [ ] Add specialized geometry adapters for remaining schema types such as roadway design/traffic records, survey observations, spirals, and volume geometry. These are currently preserved in structured metadata.
 - [ ] Verify the per-platform Shapely wheels by installing each split build on macOS and Linux as well as Windows.
@@ -92,10 +92,10 @@ convenience features or release automation.
 
 ### Phase 4 Work
 
-- [ ] Add a CI workflow that runs the Blender-independent unit tests on supported Python versions.
-- [ ] Add an extension validation/build job using Blender's command-line extension tooling.
-- [ ] Publish the supported Blender versions and CI matrix in the repository documentation.
-- [ ] Add a release checklist covering version updates, changelog entries, extension validation, ZIP creation, and a manual Blender smoke test.
+- [x] Add a CI workflow that runs the Blender-independent unit tests on supported Python versions.
+- [x] Add an extension validation/build job using Blender's command-line extension tooling, plus a headless install-and-import smoke test.
+- [x] Publish the supported Blender versions and CI matrix in the repository documentation.
+- [x] Add a release checklist covering version updates, changelog entries, extension validation, ZIP creation, and a Blender smoke test.
 
 ### Phase 4 Completion Criteria
 
@@ -108,9 +108,9 @@ convenience features or release automation.
 
 ### Phase 5 Work
 
-- [ ] Confirm `landxml_import.py` is not needed for backwards compatibility or external users.
-- [ ] Delete it if unneeded, or move it to an explicitly labelled example/migration location with a deprecation note.
-- [ ] Keep the packaged extension limited to `landxml_importer/` and update project-layout documentation after cleanup.
+- [x] Confirm `landxml_import.py` is not needed for backwards compatibility or external users.
+- [x] Delete it.
+- [x] Keep the packaged extension limited to `landxml_importer/` and update project-layout documentation after cleanup.
 - [ ] Add lightweight contributor guidance: local test command, extension build command, and fixture expectations.
 
 ### Phase 5 Completion Criteria

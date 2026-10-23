@@ -20,9 +20,14 @@ landxml_importer/
   landxml.py             Blender-independent parser and coordinate conversion
   georef.py              Blender-independent GeoTIFF / world-file georeferencing
   blender_import.py      Mesh/curve creation, structured metadata, orthophoto UVs
-  wheels/                Shapely geometry wheels for Blender's supported Python ABIs
+  wheels/                Shapely wheels, fetched by scripts/fetch_wheels.py (not committed)
+scripts/
+  fetch_wheels.py        Download and verify the manifest's wheels from PyPI
+  install_extension.ps1  Windows: fetch, validate, build, install, and enable
+  install_extension.py   Blender-side install step used by the PowerShell script
+  blender_smoke_test.py  Headless install-and-import check used by CI
 tests/
-  fixtures/              Small, reviewable LandXML samples
+  fixtures/              Small, reviewable LandXML samples (trimmed_surface.xml drives the Blender smoke test)
   fixtures/landxml-1.2.xsd  Pinned official XSD for coverage checks
   test_landxml.py        Parser and conversion tests runnable without Blender
   test_landxml_schema.py XSD-backed metadata/adapter coverage
@@ -112,7 +117,9 @@ python -m unittest discover -s tests -v
 
 ## Build and install
 
-One command rebuilds the extension and installs/enables it in Blender on Windows:
+The Shapely wheels are not committed; they are downloaded from PyPI and SHA-256 verified against the list in `blender_manifest.toml`.
+
+One command fetches the wheels, rebuilds the extension, and installs/enables it in Blender on Windows:
 
 ```powershell
 pwsh scripts/install_extension.ps1
@@ -123,11 +130,34 @@ The script checks the standard Blender Foundation installation at `C:\Program Fi
 To do it manually instead:
 
 ```powershell
+python scripts/fetch_wheels.py
 blender --command extension validate landxml_importer
 blender --command extension build --source-dir landxml_importer --split-platforms
 ```
 
 The build writes one ZIP per platform (for example `landxml_tin_importer-0.3.0-windows_x64.zip`), each containing only that platform's Shapely wheel. Install the ZIP for your platform through Blender's **Preferences → Extensions → Install from Disk**. Either way, the command appears under **File → Import → LandXML Data (.xml)**.
+
+To smoke-test a built ZIP in an isolated Blender profile (install, boundary-trimmed import, integrity check, orthophoto):
+
+```powershell
+$env:BLENDER_USER_RESOURCES = "$env:TEMP\landxml-smoke"
+blender -b --factory-startup --python-exit-code 1 --python scripts/blender_smoke_test.py -- landxml_tin_importer-0.3.0-windows_x64.zip
+```
+
+## Continuous integration and releases
+
+[.github/workflows/ci.yml](.github/workflows/ci.yml) runs on every push:
+
+1. Unit tests on Python 3.13 (Blender 5.2's bundled version).
+2. On Linux with Blender 5.2.2: fetch wheels, validate, build all platform ZIPs, and run the smoke test against the `linux_x64` ZIP. The ZIPs are uploaded as the `extension-zips` artifact.
+3. On a `v*` tag: check that the tag matches the manifest version, then publish a GitHub release with all ZIPs and that version's `CHANGELOG.md` section as notes.
+
+Release checklist:
+
+1. Bump `version` in `blender_manifest.toml` and add a dated `## <version> - YYYY-MM-DD` section to `CHANGELOG.md`.
+2. Merge to `master` once CI passes.
+3. Tag and push: `git tag v<version>` then `git push origin v<version>`.
+4. Upload the ZIPs from the release to the Blender Extensions platform.
 
 ## Support
 

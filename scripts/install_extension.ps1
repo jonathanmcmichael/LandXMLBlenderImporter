@@ -1,4 +1,4 @@
-# Rebuilds the LandXML TIN Importer extension and installs/enables it in
+# Fetches wheels, rebuilds the LandXML TIN Importer extension, and installs/enables it in
 # Blender. Checks the standard blender.org install first, then the Microsoft
 # Store execution alias.
 #
@@ -19,13 +19,23 @@ if (-not $blenderExecutable) {
 
 Get-ChildItem "$repoRoot\landxml_tin_importer-*.zip" -ErrorAction SilentlyContinue | Remove-Item -Force
 
+function Invoke-Blender {
+    & $blenderExecutable @args
+    if ($LASTEXITCODE) {
+        throw "Blender exited with code $LASTEXITCODE (arguments: $args)."
+    }
+}
+
 Push-Location $repoRoot
 try {
+    Write-Host "Fetching wheels..."
+    Invoke-Blender -b --factory-startup --python-exit-code 1 --python "$PSScriptRoot\fetch_wheels.py"
+
     Write-Host "Validating extension..."
-    & $blenderExecutable --command extension validate landxml_importer
+    Invoke-Blender --command extension validate landxml_importer
 
     Write-Host "Building extension..."
-    & $blenderExecutable --command extension build --source-dir landxml_importer --split-platforms
+    Invoke-Blender --command extension build --source-dir landxml_importer --split-platforms
     # The Microsoft Store alias may return control before Blender finishes.
     Start-Sleep -Seconds 3
 
@@ -35,7 +45,7 @@ try {
     }
 
     Write-Host "Installing and enabling in Blender..."
-    & $blenderExecutable -b --python "$PSScriptRoot\install_extension.py"
+    Invoke-Blender -b --python-exit-code 1 --python "$PSScriptRoot\install_extension.py"
     Start-Sleep -Seconds 3
 
     Write-Host "Done. Restart Blender (or disable/re-enable the extension in Preferences) to pick up the change."

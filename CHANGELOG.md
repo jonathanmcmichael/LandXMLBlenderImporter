@@ -7,6 +7,9 @@ All notable changes to this project are documented here.
 - Require Blender 5.2 or later (Python 3.13); drop the Python 3.11 wheels used by Blender 4.2–5.0.
 - Ship one extension ZIP per platform, each bundling only its own Shapely wheel.
 - Stop setting the deprecated `Material.use_nodes` when creating the orthophoto material.
+- Remove the legacy root `landxml_import.py` script; install the extension instead.
+- Add GitHub Actions CI (unit tests, Linux Blender build, headless smoke test) and tag-driven GitHub releases.
+- Fetch and SHA-256 verify Shapely wheels from PyPI at build time instead of committing them.
 - Add **Object → Apply Georeferenced Orthophoto** to drape a north-up GeoTIFF or world-file image onto imported surfaces by source coordinates, without modifying mesh geometry.
 - Read GeoTIFF placement (tiepoint/pixel scale or transformation, PixelIsPoint, linear units) in pure Python, including BigTIFF.
 - Reject geographic, Web Mercator, rotated, and unit-mismatched images, and warn when surface vertices fall outside the image.
