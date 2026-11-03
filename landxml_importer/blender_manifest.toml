@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "landxml_tin_importer"
-version = "0.3.0"
+version = "0.4.0"
 name = "LandXML Importer"
 tagline = "Import LandXML terrain and civil linework"
 maintainer = "Jonathan McMichael"

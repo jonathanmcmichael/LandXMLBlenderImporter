@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## Unreleased
+## 0.4.0 - 2026-11-03
 
 - Add optional **Edge Offset** and **Simplify** settings to footprint and Unreal package exports, so Cesium cutouts can sit inside the TIN edge with far fewer vertices; inward results are verified to stay inside the TIN.
 - Add `scripts/import_landxml_unreal.py`: imports a LandXML Unreal Package FBX with complex collision, globe-anchors each surface at the survey pivot, corrects grid convergence, and creates its footprint polygons. Requires an explicit ellipsoid height.

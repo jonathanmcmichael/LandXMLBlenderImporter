@@ -19,7 +19,7 @@ This walkthrough takes a Civil 3D surface into Unreal, placed on the Cesium glob
 
 ### 1. Install the Blender extension
 
-In Blender, open **Edit → Preferences → Extensions → ⌄ → Install from Disk** and choose the ZIP for your platform, for example `landxml_tin_importer-0.3.0-windows_x64.zip`. To build the ZIP yourself, see [Build and install](#build-and-install).
+In Blender, open **Edit → Preferences → Extensions → ⌄ → Install from Disk** and choose the ZIP for your platform, for example `landxml_tin_importer-0.4.0-windows_x64.zip`. To build the ZIP yourself, see [Build and install](#build-and-install).
 
 ### 2. Export LandXML from Civil 3D
 
@@ -318,13 +318,13 @@ blender --command extension validate landxml_importer
 blender --command extension build --source-dir landxml_importer --split-platforms
 ```
 
-The build writes one ZIP per platform (for example `landxml_tin_importer-0.3.0-windows_x64.zip`), each containing only that platform's Shapely wheel. Install the ZIP for your platform through Blender's **Preferences → Extensions → Install from Disk**. Either way, the command appears under **File → Import → LandXML Data (.xml)**.
+The build writes one ZIP per platform (for example `landxml_tin_importer-0.4.0-windows_x64.zip`), each containing only that platform's Shapely and pyproj wheels. Install the ZIP for your platform through Blender's **Preferences → Extensions → Install from Disk**. Either way, the command appears under **File → Import → LandXML Data (.xml)**.
 
 To smoke-test a built ZIP in an isolated Blender profile (install, boundary-trimmed import, integrity check, orthophoto):
 
 ```powershell
 $env:BLENDER_USER_RESOURCES = "$env:TEMP\landxml-smoke"
-blender -b --factory-startup --python-exit-code 1 --python scripts/blender_smoke_test.py -- landxml_tin_importer-0.3.0-windows_x64.zip
+blender -b --factory-startup --python-exit-code 1 --python scripts/blender_smoke_test.py -- landxml_tin_importer-0.4.0-windows_x64.zip
 ```
 
 ## Continuous integration and releases
