@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+- Add `scripts/import_landxml_unreal.py`: imports a LandXML Unreal Package FBX with complex collision, globe-anchors each surface at the survey pivot, corrects grid convergence, and creates its footprint polygons. Requires an explicit ellipsoid height.
 - Add **LandXML Unreal Package** export: one action writes Unreal-ready FBX (meters, survey pivot at zero), survey-reference JSON with a package manifest, and per-surface Cesium footprints, validating everything before writing.
 - Select a named LandXML COGO point as the shared import pivot with searchable name/description suggestions, exact source XYZ preview, and point identity in the survey sidecar.
 - Export visible TIN footprints as geographic GeoJSON preserving islands and holes, with hole-free pieces and an Unreal Editor Python helper for Cesium Cartographic Polygon actors.

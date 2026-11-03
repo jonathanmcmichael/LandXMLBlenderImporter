@@ -29,6 +29,7 @@ scripts/
   install_extension.py   Blender-side install step used by the PowerShell script
   blender_smoke_test.py  Headless install-and-import check used by CI
   import_cesium_polygons.py  Unreal Editor helper for footprint polygon actors
+  import_landxml_unreal.py   Unreal Editor helper that imports and globe-anchors a package
 tests/
   fixtures/              Small, reviewable LandXML samples (trimmed_surface.xml drives the Blender smoke test)
   fixtures/landxml-1.2.xsd  Pinned official XSD for coverage checks
@@ -110,11 +111,30 @@ Local mesh X/Y are **projected grid east/north**, not true east/north. The sidec
 
 With an imported object active, choose **File → Export → LandXML Unreal Package (.fbx + sidecars)** (also in the Object menu). Saving `site.fbx` writes:
 
-- `site.fbx` — the import's TIN surfaces only, in meters with the survey pivot at local zero, modifiers applied and textures embedded. Unreal's FBX importer scales 1 m to 100 uu and maps Blender +Y (grid north) to Unreal −Y, which matches Cesium's east/south/up georeference frame. Verify orientation against control on your first import.
+- `site.fbx` — the import's TIN surfaces only, in meters with the survey pivot at local zero, modifiers applied and textures embedded. Unreal's FBX importer scales 1 m to 100 uu and maps Blender +Y (grid north) to Unreal −Y, which matches Cesium's east/south/up georeference frame (confirmed with UE 5.6 on a real export).
 - `site.survey.json` — the survey reference above, plus a `package` block listing the FBX, mesh objects and footprint files.
 - `site_<surface>.footprint.geojson` — one Cesium clipping footprint per surface (see below). Skipped with a warning when no CRS is known; use **CRS Override** to supply one.
 
 **Selected Surfaces Only** limits the package to the selected surfaces of the active import. Scene **Unit Scale** must be 1.0, surfaces must be visible, and every check (transforms, modifiers, edited geometry, CRS) runs before any file is written, so a failed export leaves no partial package.
+
+### Place the package in Unreal with Cesium
+
+`scripts/import_landxml_unreal.py` imports the package FBX and places each surface on the globe in one step:
+
+1. Enable **Cesium for Unreal** and **Python Editor Script Plugin**, and select the level's **CesiumGeoreference** actor.
+2. In Unreal's Python console (adjust both paths; keep `scripts/` intact, as the helper imports `import_cesium_polygons.py` beside it):
+
+   ```python
+   import sys; sys.path.append(r"D:\dev\LandXMLBlenderImporter\scripts")
+   from import_landxml_unreal import import_package
+   actors = import_package(r"C:\path\to\site.survey.json", ellipsoid_height_meters=200.0)
+   ```
+
+3. Add the created footprint polygon actors to the tileset's **CesiumPolygonRasterOverlay** (see below), verify against survey control, and save the level.
+
+For each surface the helper imports a static mesh into `/Game/LandXML` (`destination=` to change; re-running replaces the assets) with **complex-as-simple collision** on the TIN triangles. It spawns an actor, adds a **CesiumGlobeAnchorComponent**, moves it to the pivot's longitude/latitude, and yaws it by the recorded **meridian convergence**. That yaw turns grid north to its true direction on the globe. Without it, Missouri East's −0.43° convergence would shift a point 500 m from the pivot by about 3.7 m. Pass `apply_grid_convergence=False` only if you rotate elsewhere. The helper creates the footprint polygons at the same height; use `import_footprints=False` to skip them. The projection scale factor (about 0.99998 for Missouri East, 1 cm over 500 m) is not applied.
+
+`ellipsoid_height_meters` is the **WGS84 ellipsoid height of the pivot** (the mesh's local zero). It is required unless the survey JSON already records it. Survey elevation (e.g. NAVD88 feet) is never substituted: in the conterminous US the ellipsoid height is roughly the orthometric height **minus ~30 m** (geoid separation), so get it from survey control or NGS tools. Everything is validated before any asset is imported. If placement fails, the actors created by that attempt are removed; imported assets remain for the next attempt.
 
 ## Export a Cesium clipping polygon
 

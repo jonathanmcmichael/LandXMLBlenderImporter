@@ -11,13 +11,8 @@ from pathlib import Path
 import unreal
 
 
-def import_footprint(filepath, *, georeference=None, height_meters=0.0):
-    """Create hole-free polygon actors; assign all to one overlay afterward.
-
-    Height only places the polygon spline, not the imported terrain mesh.
-    """
-    if not math.isfinite(height_meters):
-        raise ValueError("Polygon display height must be finite (ellipsoid meters)")
+def load_footprint(filepath):
+    """Validate a footprint export and return (data, open rings) without touching the level."""
     data = json.loads(Path(filepath).read_text(encoding="utf-8"))
     if data.get("landxml", {}).get("format") != "landxml-cesium-footprint-v1":
         raise ValueError("Expected a LandXML Cesium footprint export")
@@ -36,7 +31,10 @@ def import_footprint(filepath, *, georeference=None, height_meters=0.0):
             ):
                 raise ValueError("Polygon coordinates must be finite longitude/latitude pairs")
         rings.append(ring[:-1])
-    editor = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    return data, rings
+
+
+def resolve_georeference(editor, georeference=None):
     if georeference is None:
         selected = [
             actor for actor in editor.get_selected_level_actors()
@@ -47,6 +45,30 @@ def import_footprint(filepath, *, georeference=None, height_meters=0.0):
         georeference = selected[0]
     if not isinstance(georeference, unreal.CesiumGeoreference):
         raise ValueError("georeference must be a CesiumGeoreference actor")
+    return georeference
+
+
+def import_footprint(filepath, *, georeference=None, height_meters=0.0):
+    """Create hole-free polygon actors; assign all to one overlay afterward.
+
+    Height only places the polygon spline, not the imported terrain mesh.
+    """
+    if not math.isfinite(height_meters):
+        raise ValueError("Polygon display height must be finite (ellipsoid meters)")
+    data, rings = load_footprint(filepath)
+    editor = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    georeference = resolve_georeference(editor, georeference)
+    actors = create_polygon_actors(editor, georeference, data, rings, height_meters)
+    editor.set_selected_level_actors(actors)
+    unreal.log_warning(
+        f"Created {len(actors)} polygon actors. Add ALL to the tileset's CesiumPolygonRasterOverlay "
+        "Polygons array, then refresh the tileset. Holes are preserved by gaps between pieces. "
+        "Clipping is visual and does not remove collision. Save the level when ready."
+    )
+    return actors
+
+
+def create_polygon_actors(editor, georeference, data, rings, height_meters):
     actors = []
     with unreal.ScopedEditorTransaction("Import LandXML Cesium footprint"):
         try:
@@ -79,10 +101,4 @@ def import_footprint(filepath, *, georeference=None, height_meters=0.0):
             for actor in reversed(actors):
                 editor.destroy_actor(actor)
             raise
-    editor.set_selected_level_actors(actors)
-    unreal.log_warning(
-        f"Created {len(actors)} polygon actors. Add ALL to the tileset's CesiumPolygonRasterOverlay "
-        "Polygons array, then refresh the tileset. Holes are preserved by gaps between pieces. "
-        "Clipping is visual and does not remove collision. Save the level when ready."
-    )
     return actors
