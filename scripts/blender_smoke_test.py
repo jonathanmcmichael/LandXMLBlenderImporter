@@ -12,6 +12,7 @@ world file can be applied.
 """
 
 import importlib
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -68,6 +69,86 @@ def main():
         surface.select_set(True)
         status = bpy.ops.object.landxml_apply_orthophoto(filepath=str(image_path))
     check(status == {"FINISHED"} and surface.data.materials, "orthophoto material is applied")
+
+    import pyproj
+
+    check("extensions" in Path(pyproj.__file__).parts, "pyproj loads from the bundled wheel")
+    with tempfile.TemporaryDirectory() as directory:
+        pivot = (3000000.123456789, 1698067.4612223296, 5000.0)
+        result = blender_import.import_landxml(
+            str(REPO_ROOT / "tests" / "fixtures" / "survey_surface.xml"),
+            shift_to_origin=True, custom_origin=pivot, horizontal_epsg="2232",
+            vertical_datum="NAVD88", ellipsoid_height="1490.5",
+        )
+        survey_surface = result.surfaces[0]
+        check(len(survey_surface.data.polygons) == 1
+              and survey_surface["landxml_source_face_count"] == 2
+              and survey_surface["landxml_invisible_face_count"] == 1,
+              "invisible source triangle is recorded but not added to Blender mesh")
+        check(tuple(survey_surface.data.vertices[0].co) == (0, 0, 0), "survey pivot is local mesh zero")
+        check(abs(survey_surface.data.vertices[1].co.x - 10 * 1200 / 3937) < 1e-6,
+              "US survey feet convert to local meters")
+        bpy.context.view_layer.objects.active = survey_surface
+        filepath = str(Path(directory) / "survey.json")
+        check(bpy.ops.export_scene.landxml_survey_reference(filepath=filepath) == {"FINISHED"},
+              "survey sidecar export operator succeeds")
+        reference = json.loads(Path(filepath).read_text())
+        check(reference["origin"]["easting"] == pivot[0], "sidecar preserves double-precision pivot")
+        check(abs(reference["cesium_anchor"]["latitude_degrees"] - 39.75) < 1e-6,
+              "State Plane pivot converts to Cesium latitude")
+        check(reference["cesium_anchor"]["ellipsoid_height_meters"] == 1490.5,
+              "explicit Cesium height remains separate from survey elevation")
+        footprint_path = str(Path(directory) / "footprint.geojson")
+        check(bpy.ops.export_scene.landxml_cesium_footprint(filepath=footprint_path) == {"FINISHED"},
+              "Cesium footprint export operator succeeds")
+        footprint = json.loads(Path(footprint_path).read_text())
+        check(len(footprint["features"]) == 1 and footprint["cesium_unreal"]["piece_count"] == 1,
+              "visible triangle exports one footprint and no hidden triangle")
+        check(footprint["features"][0]["geometry"]["coordinates"][0][0][0] < -105,
+              "footprint coordinates are geographic longitude, not local mesh coordinates")
+        survey_surface.location.x = 1
+        try:
+            blender_import.export_survey_reference(survey_surface, filepath)
+        except ValueError:
+            pass
+        else:
+            raise RuntimeError("Smoke test failed: transformed survey object was accepted")
+        survey_surface.location.x = 0
+        bpy.context.view_layer.update()
+        name = survey_surface.name
+        blend_path = str(Path(directory) / "survey.blend")
+        bpy.ops.wm.save_as_mainfile(filepath=blend_path)
+        bpy.ops.wm.open_mainfile(filepath=blend_path)
+        blender_import.export_survey_reference(bpy.data.objects[name], filepath)
+        check(json.loads(Path(filepath).read_text())["origin"] == reference["origin"],
+              "survey reference persists across saving and reopening Blender")
+
+    status = bpy.ops.import_scene.landxml_tin(
+        filepath=str(REPO_ROOT / "tests" / "fixtures" / "survey_surface.xml"),
+        coordinate_system="NAD83 / Colorado Central (ftUS) - EPSG:2232",
+        horizontal_epsg="4326",
+        use_custom_pivot=True,
+        use_cogo_pivot=True,
+        pivot_point="1 - Building Corner",
+        pivot_easting="3000000.123456789",
+        pivot_northing="1698067.4612223296",
+        pivot_elevation="5000",
+    )
+    check(status == {"FINISHED"}, "import operator accepts searchable NAD83 text selection")
+    reference = json.loads(bpy.context.active_object["landxml_survey_reference"])
+    check(reference["horizontal_crs"]["id"] == "EPSG:2232",
+          "dropdown overrides stale manual EPSG and persists chosen CRS")
+    check(reference["origin"] == {
+        "easting": 3000000.123456789, "northing": 1698067.4612223296, "elevation": 5000.0,
+    }, "COGO point sets exact shared XYZ origin, overriding manual and automatic pivots")
+    check(reference["pivot_point"]["code"] == "Building Corner", "selected COGO identity persists")
+    collection_name = bpy.context.active_object["landxml_import_collection"]
+    points = [
+        obj for obj in bpy.data.objects
+        if obj.get("landxml_import_collection") == collection_name and obj.get("landxml_category") == "CgPoint"
+    ]
+    check(len(points) == 1 and tuple(points[0].data.vertices[0].co) == (0, 0, 0),
+          "selected COGO point imports at local zero")
 
 
 main()

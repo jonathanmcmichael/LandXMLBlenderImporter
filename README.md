@@ -7,7 +7,7 @@ The importer converts LandXML surface points/faces, boundaries, breaklines, Plan
 ## Requirements
 
 - Blender 5.2 or later (Python 3.13). Blender 5.2.2 LTS is the tested version.
-- The extension bundles Shapely 2.1.2 wheels for boundary clipping on Windows x64, Linux x64/arm64, and macOS x64/arm64.
+- The extension bundles Shapely 2.1.2 for boundary clipping and pyproj 3.7.2 for projected-coordinate conversion on Windows x64, Linux x64/arm64, and macOS x64/arm64. The projection wheels require glibc 2.28+ on Linux, macOS 13+ on Intel, or macOS 14+ on Apple Silicon.
 - A valid LandXML 1.2 document; files with or without supported geometry are retained as structured records.
 - PowerShell and a locally installed Blender executable when using the Windows install script.
 
@@ -19,6 +19,8 @@ landxml_importer/
   __init__.py            Blender operator and menu registration
   landxml.py             Blender-independent parser and coordinate conversion
   georef.py              Blender-independent GeoTIFF / world-file georeferencing
+  survey.py              Survey pivot sidecars and projected CRS to WGS84 anchors
+  footprint.py           Exact visible-TIN footprint GeoJSON and Cesium pieces
   blender_import.py      Mesh/curve creation, structured metadata, orthophoto UVs
   wheels/                Shapely wheels, fetched by scripts/fetch_wheels.py (not committed)
 scripts/
@@ -26,6 +28,7 @@ scripts/
   install_extension.ps1  Windows: fetch, validate, build, install, and enable
   install_extension.py   Blender-side install step used by the PowerShell script
   blender_smoke_test.py  Headless install-and-import check used by CI
+  import_cesium_polygons.py  Unreal Editor helper for footprint polygon actors
 tests/
   fixtures/              Small, reviewable LandXML samples (trimmed_surface.xml drives the Blender smoke test)
   fixtures/landxml-1.2.xsd  Pinned official XSD for coverage checks
@@ -39,6 +42,7 @@ The XML/domain and georeferencing code stays independent of `bpy`, while the ope
 ## Import behavior
 
 - Preserves original `<P>` and `<F>` records and IDs in the structured metadata Text datablock.
+- Excludes triangles marked invisible (`<F i="1">`) from the Blender mesh while preserving source records. Reports their count separately as `landxml_invisible_face_count`; they are not malformed/skipped faces. Re-import older meshes to apply this correction.
 - Applies `edgeTrim="true"` outer and hide boundary loops to the working TIN by intersecting and retriangulating affected faces; generated elevations are interpolated from source triangles.
 - Imports boundaries, breaklines, PlanFeatures, pipe centerlines, and `CoordGeom` lines/arcs as separate Blender curve objects; CgPoints and Locations become categorized point-cloud meshes with source IDs/descriptions as point attributes.
 - Imports all valid TIN surfaces in the file.
@@ -56,12 +60,14 @@ The XML/domain and georeferencing code stays independent of `bpy`, while the ope
 
 1. Choose **File → Import → LandXML Data (.xml)**.
 2. Select the `.xml` or `.landxml` file.
-3. Leave **Source Units** set to **From LandXML** to use declared units. Generic `foot` and missing unit declarations warn and default to US survey feet; select an explicit override when needed.
+3. Leave **Source Units** set to **From LandXML (US Feet Fallback)** to use declared units. Generic `foot` and missing unit declarations warn and default to US survey feet (exactly 1200/3937 meters); declared meters and international feet are not overridden.
 4. Keep **Shift Near Origin** enabled unless source-coordinate placement near Blender's global origin is required.
 5. Enable **Use Survey Pivot** to enter a known source-coordinate Easting, Northing, and Elevation. Mesh vertices are located relative to this pivot while the exact source coordinates remain in custom properties.
+   Alternatively, enable **Use LandXML COGO Pivot**, then search/select a named point from the selected file (for example `1 - Building Corner`). Its exact source Easting, Northing and Elevation are previewed and become the shared origin, overriding automatic shifting and manual pivot values. Nothing is selected automatically, even for a single point. Missing or duplicate point names stop the import rather than falling back to another origin. Changing the file or Point Order refreshes the candidates; reselect if the saved choice is no longer valid.
 6. Keep **Validate Imported Geometry** enabled to cancel the complete import if Blender's mesh differs from the planned clipped output.
 7. Use **Northing, Easting, Elevation** point order for standard LandXML 1.2 files. Try **Easting, Northing, Elevation** only when an imported terrain is mirrored or rotated.
 8. Review the validation popup for source/output face counts, clipped source faces, linework objects, units, and skipped or degenerate faces.
+9. In **US NAD83 Coordinate System**, type a zone name (for example `Colorado Central`) or EPSG number to search and select a suggestion. You can also type a code directly, such as `EPSG:2232`, including codes for other datums. Enter **Source Elevation Datum** separately. Leave the CRS field blank if unknown: the pivot is preserved, but no geographic anchor is invented.
 
 The import creates a `LandXML_<filename>` collection plus a `LandXML_<filename>_metadata.json` index Text datablock and bounded JSONL record chunks. Each record stores its source node ID, parent ID, sibling order, name, namespace, attributes, text, and mixed-content tail. Mesh, curve, and point-cloud objects link to the index. Rebuild the full source tree by joining records through their parent and child indices.
 
@@ -73,7 +79,7 @@ The import creates a `LandXML_<filename>` collection plus a `LandXML_<filename>_
 - Faces with unresolved point IDs are skipped; their count and reason are also recorded in `landxml_skipped_face_reasons`.
 - Zero-area, repeated-vertex, and collinear source triangles are retained without modification and counted in `landxml_degenerate_face_count`.
 - All LandXML records are retained in structured metadata. Dedicated geometry adapters cover TIN surfaces, boundaries, breaklines, CgPoints, Locations, pipes, profiles, cross-sections, PlanFeatures, and `CoordGeom` lines/circular curves; other standard entities remain available as structured records but do not yet have specialized Blender geometry adapters.
-- Coordinate reference system discovery/reprojection is not performed. The source coordinate-system records are retained in metadata.
+- Automatic coordinate reference system discovery and mesh reprojection are not performed. A user-specified projected EPSG code converts the pivot to WGS84 longitude/latitude; source coordinate-system records are retained in metadata.
 - Circular `CoordGeom` arcs are sampled at five-degree maximum angular intervals for Blender curve geometry; source arc parameters remain in metadata.
 
 ## TIN integrity
@@ -83,6 +89,47 @@ LandXML points/faces remain the source records. When an edge-trim boundary is ac
 Use **Object → Validate LandXML TIN Integrity** to compare the selected object's raw mesh coordinates and polygon loops against the stored import fingerprint. This intentionally ignores transforms and modifier output; it detects changes to the base mesh data itself. Object transforms are locked after import, but Blender Edit Mode, modifiers, and Python scripts can still alter a mesh. The validator identifies that divergence; it cannot prevent it.
 
 To recover a source coordinate from a local mesh vertex, divide its Blender coordinate by `landxml_unit_to_meters` and add `landxml_origin_easting`, `landxml_origin_northing`, and `landxml_origin_elevation` respectively. Pivot values use the selected source-unit system.
+
+## Civil 3D State Plane to Unreal / Cesium
+
+The Civil 3D workflow offers an editable **US NAD83 Coordinate System** search field and defaults to US survey feet when the LandXML units are ambiguous or absent. Suggestions list non-deprecated original NAD83 projected CRSs whose EPSG area of use includes the US, including State Plane, UTM and regional systems. Search by zone name, unit variant or EPSG code. Names include the zone, unit variant (when part of the EPSG name), and EPSG code; area descriptions identify the applicable region. NAD83(HARN), NAD83(NSRS2007) and NAD83(2011) are distinct realizations: enter their EPSG codes directly. Partial names must be completed by selecting a suggestion; ambiguous text is rejected. There is deliberately no default zone: State Plane requires the correct zone **and datum**. Export Civil 3D LandXML in the project's original survey coordinates; do not subtract a second origin in Civil 3D.
+
+1. Enable **Use Survey Pivot** and enter a known Easting, Northing and Elevation in the resolved source units. These text fields retain double precision rather than rounding large survey coordinates through Blender float properties. Python operator callers must now pass pivot values as strings.
+   Or use **Use LandXML COGO Pivot** to choose an exported survey/control point without copying coordinates. All georeferenced geometry, including the selected point, uses the same XYZ offset; the selected point lands at local zero. Its name/description is retained as `pivot_point` in the survey-reference JSON. Elevation-less COGO records follow the parser's existing zero-elevation convention; verify the preview before choosing a 3D pivot. Python operator callers use `use_cogo_pivot=True, pivot_point="1"`; the core importer accepts `pivot_point_name="1"`.
+2. Select **NAD83 / Colorado Central (ftUS) - EPSG:2232**, for example, from **US NAD83 Coordinate System**, or type `2232` / `EPSG:2232` into the same field. Python callers can still use `coordinate_system="CUSTOM"` with `horizontal_epsg` for compatibility; a nonempty coordinate-system entry takes precedence. Codes are validated as projected Easting/Northing CRSs, and the pivot must be inside the CRS area of use. CRS selection does not override source geometry units; those still come from LandXML or the explicit Source Units override.
+3. Enter **Source Elevation Datum**, for example `NAVD88`. If independently known, enter **Cesium Pivot Height (m)**: the pivot's **WGS84 ellipsoid height in meters**, not its State Plane/survey elevation. A horizontal CRS conversion does not convert NAVD88 to ellipsoid height.
+4. With an imported object active, choose **File → Export → LandXML Survey Reference (.json)** (also in the Object menu). Save alongside the mesh export. The sidecar includes the exact source pivot, unit scale, CRS, datum, grid axes, WGS84 longitude/latitude, projection convergence/scale and warnings. Unknown ellipsoid height is JSON `null`, never zero or an assumed conversion.
+5. Export the mesh with its existing local-zero origin and without recentering geometry. All georeferenced objects in the import share the same pivot; profiles and cross-sections are local station diagrams and are excluded from the sidecar. Transformed objects cause sidecar export to fail rather than describing stale placement.
+6. In Unreal/Cesium, use the geographic anchor for placement and preserve the local mesh pivot. The JSON is a portable reference, **not an automatic Cesium importer**. Account for the mesh export's axis conversion and meters-to-centimeters conversion (Unreal), and verify orientation/scale against survey control. Do not apply a second unit conversion if the mesh importer already handled it.
+
+Example control point for EPSG:2232: Easting `3000000`, Northing `1698067.4612223296`, Elevation `5000` US survey feet maps horizontally to approximately longitude `-105.5`, latitude `39.75`. A vertex ten survey feet east becomes local X `3.048006096` meters. The survey elevation remains separate from any supplied Cesium ellipsoid height.
+
+Local mesh X/Y are **projected grid east/north**, not true east/north. The sidecar records meridian convergence and projection scales at the pivot, but does not rotate, warp, or reproject the mesh. An anchor alone cannot give exact globe placement across a large site or account for a Civil 3D ground-coordinate calibration. Horizontal datum accuracy depends on locally available PROJ operations/grids; no ballpark transformation is permitted, and missing required grids produce an explicit error. Verify placement against known WGS84 control. The reference is stored on the Blender import collection and georeferenced objects, so it survives saving/reopening the `.blend`.
+
+## Export a Cesium clipping polygon
+
+Select an imported TIN and choose **File → Export → Cesium Surface Footprint (.geojson)** (also in the Object menu). Uses the import CRS, or an optional searchable **CRS Override** when the original import had no CRS. For original NAD83 / Missouri East use `EPSG:26996`; XML US survey feet are converted to the CRS's meters automatically.
+
+The exporter unions the raw visible mesh triangles in XY, without a convex hull, simplification or filling holes. Invisible LandXML faces are already excluded. Each disconnected island becomes a GeoJSON Polygon with its interior rings retained. Transformed objects, modifiers, edited base geometry and unspecified CRSs are rejected. Re-import older meshes before exporting. Mesh coordinates use Blender's stored precision; the footprint is topologically exact to that mesh, not a reconstruction of extra source-coordinate precision. Degenerate triangles with no XY area cannot define a polygon; their exclusion count is recorded.
+
+Cesium Cartographic Polygon actors have **one ring each**. The GeoJSON includes a `cesium_unreal.pieces` extension: islands without holes use one actor, while islands with holes are exactly partitioned into hole-free triangles. Interior rings must **not** be imported as separate clipping actors, which would hide the holes rather than preserve them. Complex footprints with holes may produce many actors; the exporter reports the count.
+
+To create the actors:
+
+1. Enable **Cesium for Unreal** and **Python Editor Script Plugin** in Unreal.
+2. Select the intended **CesiumGeoreference** actor in your level.
+3. In Unreal's Python console, load the helper from this repository and import the export (adjust both paths):
+
+   ```python
+   exec(open(r"D:\dev\LandXMLBlenderImporter\scripts\import_cesium_polygons.py", encoding="utf-8").read())
+   polygons = import_footprint(r"C:\path\to\FG-WDC1_footprint.geojson")
+   ```
+
+4. Add a **CesiumPolygonRasterOverlay** to the target tileset and add **all created actors** to its **Polygons** array. Keep their pieces together on the same overlay to preserve holes. Refresh the tileset and save your level.
+
+`import_footprint(..., height_meters=250)` optionally places the spline near terrain for editing. This is only a polygon display height (ellipsoid meters), **not** a vertical-datum conversion or the height of your imported mesh. Clipping is 2.5D and visual: hidden tileset geometry can still have collision. The helper does not change materials, overlay settings, existing actors, or save the level automatically. Imports can be undone; failed imports remove actors created during that attempt.
+
+Coordinates are longitude/latitude degrees, with every perimeter vertex transformed from the projected CRS; straight geographic edges connect those vertices. Very long edges or antimeridian-crossing footprints require additional handling (antimeridian crossings are rejected). No survey-grade accuracy beyond the underlying datum transformation is implied. See [Cesium's polygon clipping guide](https://cesium.com/learn/unreal/unreal-clipping/) for overlay and material setup.
 
 ## Using breaklines on the TIN
 
@@ -112,12 +159,13 @@ If the Civil 3D project uses scaled ground coordinates or a local site calibrati
 From the repository root:
 
 ```powershell
+python -m pip install shapely==2.1.2 pyproj==3.7.2
 python -m unittest discover -s tests -v
 ```
 
 ## Build and install
 
-The Shapely wheels are not committed; they are downloaded from PyPI and SHA-256 verified against the list in `blender_manifest.toml`.
+The Shapely, pyproj and certifi wheels are not committed; they are downloaded from PyPI and SHA-256 verified against the list in `blender_manifest.toml`.
 
 One command fetches the wheels, rebuilds the extension, and installs/enables it in Blender on Windows:
 
@@ -169,7 +217,7 @@ This project is licensed under the GNU General Public License v3.0 or later. See
 
 ## Design boundaries
 
-The default point order is `Northing Easting Elevation` per the LandXML 1.2 standard, but this is exposed as an import option (`Point Order`) since some real-world exports reverse it. Automatic coordinate-system discovery and reprojection remain out of scope.
+The default point order is `Northing Easting Elevation` per the LandXML 1.2 standard, but this is exposed as an import option (`Point Order`) since some real-world exports reverse it. Automatic coordinate-system discovery, vertical-datum conversion, and whole-mesh reprojection remain out of scope.
 
 Long, thin ("sliver") triangles from the source TIN are left as-is rather than remeshed. They can represent dense point layout along linear features such as curbs, centerlines, and swales. Fixing them would require lossy simplification or full retriangulation, both of which conflict with exact point and face preservation.
 

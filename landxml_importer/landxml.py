@@ -58,6 +58,7 @@ class TinSurface:
     skipped_face_count: int = 0
     skipped_face_reasons: tuple[tuple[str, int], ...] = ()
     boundaries: tuple[LandXMLCurve, ...] = ()
+    invisible_face_indices: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -176,6 +177,7 @@ class MeshData:
     degenerate_face_count: int
     source_face_count: int
     boundary_clipped_face_count: int
+    invisible_face_count: int = 0
 
 
 def _local_name(tag: str) -> str:
@@ -530,6 +532,36 @@ def _parse_source_points(root: ET.Element, point_order: str) -> tuple[LandXMLPoi
     return tuple(points)
 
 
+def read_cogo_points(path: str | Path, *, point_order: str = "NEZ") -> tuple[LandXMLPoint, ...]:
+    """Read pivot candidates without constructing TINs or full metadata."""
+    if point_order not in POINT_ORDERS:
+        raise LandXMLError(f"Unsupported point order: {point_order}")
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError) as exc:
+        raise LandXMLError(f"Could not read LandXML: {exc}") from exc
+    return tuple(
+        LandXMLPoint(
+            category="CgPoint",
+            coordinate=_cgpoint_xyz(point, point_order, label="CgPoint"),
+            attributes=tuple(point.attrib.items()),
+        )
+        for point in _descendants(root, "CgPoint")
+    )
+
+
+def cogo_pivot(points: Iterable[LandXMLPoint], name: str) -> LandXMLPoint:
+    if not name.strip():
+        raise LandXMLError("Select a named LandXML COGO point for the pivot")
+    matches = [
+        point for point in points
+        if point.category == "CgPoint" and dict(point.attributes).get("name") == name
+    ]
+    if len(matches) != 1:
+        raise LandXMLError(f"Pivot COGO point '{name}' must occur exactly once in the selected file")
+    return matches[0]
+
+
 def _descendants(element: ET.Element, name: str) -> Iterable[ET.Element]:
     return (child for child in element.iter() if _local_name(child.tag) == name)
 
@@ -556,6 +588,7 @@ def _parse_surface(element: ET.Element, fallback_name: str, point_order: str) ->
         points[point_id] = (easting, northing, elevation)
 
     faces: list[tuple[str, str, str]] = []
+    invisible_face_indices = []
     skipped_reasons: dict[str, int] = {}
     for face in _descendants(search_root, "F"):
         ids = face.text.split() if face.text else []
@@ -565,6 +598,8 @@ def _parse_surface(element: ET.Element, fallback_name: str, point_order: str) ->
         if any(point_id not in points for point_id in ids):
             skipped_reasons["missing_point"] = skipped_reasons.get("missing_point", 0) + 1
             continue
+        if face.get("i", "").strip() == "1":
+            invisible_face_indices.append(len(faces))
         faces.append((ids[0], ids[1], ids[2]))
 
     if not points or not faces:
@@ -576,6 +611,7 @@ def _parse_surface(element: ET.Element, fallback_name: str, point_order: str) ->
         faces=tuple(faces),
         skipped_face_count=sum(skipped_reasons.values()),
         skipped_face_reasons=tuple(sorted(skipped_reasons.items())),
+        invisible_face_indices=tuple(invisible_face_indices),
     )
 
 
@@ -789,7 +825,12 @@ def build_mesh_data(
             )
         )
 
-    source_faces = tuple(tuple(id_to_index[point_id] for point_id in face) for face in surface.faces)
+    invisible_indices = set(surface.invisible_face_indices)
+    source_faces = tuple(
+        tuple(id_to_index[point_id] for point_id in face)
+        for index, face in enumerate(surface.faces)
+        if index not in invisible_indices
+    )
     boundary_clipped_face_count = 0
     if surface.boundaries:
         vertices, faces, boundary_clipped_face_count = _clip_faces_to_boundaries(
@@ -811,8 +852,9 @@ def build_mesh_data(
         skipped_face_count=surface.skipped_face_count,
         skipped_face_reasons=surface.skipped_face_reasons,
         degenerate_face_count=degenerate_face_count,
-        source_face_count=len(source_faces),
+        source_face_count=len(surface.faces),
         boundary_clipped_face_count=boundary_clipped_face_count,
+        invisible_face_count=len(invisible_indices),
     )
 
 
@@ -1021,4 +1063,3 @@ def match_breakline_mesh_edges(
             matching_edges.add(edge_index)
             matched_segments += 1
     return tuple(sorted(matching_edges)), matched_segments, total_segments
-

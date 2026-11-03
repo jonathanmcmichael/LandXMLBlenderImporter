@@ -8,13 +8,17 @@ import json
 from pathlib import Path
 
 import bpy
+from mathutils import Matrix
 
 from .georef import GeoreferenceError, ImageBounds, planar_uvs, resolve_bounds
+from .footprint import surface_footprint
+from .survey import survey_reference
 from .landxml import (
     UNIT_TO_METERS,
     build_curve_data,
     build_mesh_data,
     build_point_data,
+    cogo_pivot,
     geometry_fingerprint,
     match_breakline_mesh_edges,
     parse_landxml_document,
@@ -196,6 +200,10 @@ def import_landxml(
     point_order: str = "NEZ",
     custom_origin: tuple[float, float, float] | None = None,
     validate_original_faces: bool = True,
+    horizontal_epsg: str = "",
+    vertical_datum: str = "",
+    ellipsoid_height: str = "",
+    pivot_point_name: str = "",
 ):
     document = parse_landxml_document(
         filepath,
@@ -204,9 +212,26 @@ def import_landxml(
     )
     surfaces = document.surfaces
     source_units = document.source_units
-    origin = custom_origin if custom_origin is not None else (
+    selected_point = None
+    if pivot_point_name:
+        if custom_origin is not None:
+            raise ValueError("Choose either a LandXML COGO pivot or a manual survey pivot, not both")
+        selected_point = cogo_pivot(document.points, pivot_point_name)
+    origin = selected_point.coordinate if selected_point is not None else custom_origin
+    origin = origin if origin is not None else (
         shared_document_origin(document) if shift_to_origin else (0.0, 0.0, 0.0)
     )
+    reference = survey_reference(
+        origin,
+        source_units=source_units,
+        unit_to_meters=UNIT_TO_METERS[source_units],
+        horizontal_epsg=horizontal_epsg,
+        vertical_datum=vertical_datum,
+        ellipsoid_height=ellipsoid_height,
+    )
+    if selected_point is not None:
+        reference["pivot_point"] = dict(selected_point.attributes)
+    reference_json = json.dumps(reference, ensure_ascii=True, allow_nan=False)
     source_path = Path(filepath)
     with source_path.open("rb") as source_file:
         source_sha256 = hashlib.file_digest(source_file, "sha256").hexdigest()
@@ -244,6 +269,7 @@ def import_landxml(
         collection["landxml_source_units"] = source_units
         collection["landxml_source_sha256"] = source_sha256
         collection["landxml_root_attributes"] = json.dumps(dict(document.root.attributes), ensure_ascii=True)
+        collection["landxml_survey_reference"] = reference_json
 
         for surface in surfaces:
             data = build_mesh_data(surface, origin=origin, source_units=source_units)
@@ -279,6 +305,7 @@ def import_landxml(
             obj["landxml_vertex_count"] = len(data.vertices)
             obj["landxml_face_count"] = len(data.faces)
             obj["landxml_source_face_count"] = data.source_face_count
+            obj["landxml_invisible_face_count"] = data.invisible_face_count
             obj["landxml_boundary_clipped_face_count"] = data.boundary_clipped_face_count
             obj["landxml_skipped_face_count"] = data.skipped_face_count
             obj["landxml_skipped_face_reasons"] = json.dumps(dict(data.skipped_face_reasons))
@@ -339,6 +366,14 @@ def import_landxml(
             imported_objects.append(obj)
             point_objects.append(obj)
             obj.select_set(True)
+        for obj in imported_objects:
+            if obj.get("landxml_category") in {"Profile", "CrossSectSurf"}:
+                continue
+            obj["landxml_survey_reference"] = reference_json
+            obj["landxml_import_collection"] = collection.name
+            obj.lock_location = (True, True, True)
+            obj.lock_rotation = (True, True, True)
+            obj.lock_scale = (True, True, True)
     except Exception:
         _remove_import(collection, imported_objects, metadata_texts)
         raise
@@ -355,6 +390,65 @@ def import_landxml(
         source_units=source_units,
         unit_warning=document.unit_warning,
     )
+
+
+def export_survey_reference(obj: bpy.types.Object, filepath: str) -> None:
+    """Export a reference only while the imported local coordinate frame is intact."""
+    collection_name = obj.get("landxml_import_collection")
+    collection = bpy.data.collections.get(collection_name) if collection_name else None
+    if collection is None or "landxml_survey_reference" not in obj:
+        raise ValueError("Re-import this object to create a portable survey reference")
+    reference_json = obj["landxml_survey_reference"]
+    objects = [
+        item for item in collection.all_objects
+        if item.get("landxml_survey_reference") == reference_json
+    ]
+    bpy.context.view_layer.update()
+    identity = Matrix.Identity(4)
+    for item in objects:
+        if item.matrix_world != identity:
+            raise ValueError(f"Object '{item.name}' has transformed placement; restore imported transforms before export")
+    reference = json.loads(reference_json)
+    reference["objects"] = [item.name for item in objects]
+    reference["source_sha256"] = collection["landxml_source_sha256"]
+    Path(filepath).write_text(
+        json.dumps(reference, indent=2, ensure_ascii=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def export_cesium_footprint(
+    obj: bpy.types.Object, filepath: str, *, horizontal_epsg: str = "",
+) -> dict:
+    if obj.type != "MESH" or obj.get("landxml_category") != "Surface":
+        raise ValueError("Select an imported LandXML TIN surface")
+    bpy.context.view_layer.update()
+    if obj.matrix_world != Matrix.Identity(4):
+        raise ValueError("Restore imported object transforms before exporting its geographic footprint")
+    if obj.modifiers:
+        raise ValueError("Remove modifiers before exporting; footprint uses the raw imported TIN")
+    if object_geometry_fingerprint(obj) != obj.get("landxml_geometry_fingerprint"):
+        raise ValueError("Surface geometry has changed; re-import before exporting its geographic footprint")
+    reference = json.loads(obj.get("landxml_survey_reference", "{}"))
+    crs = reference.get("horizontal_crs")
+    epsg = horizontal_epsg.strip() or (crs["id"] if crs else "")
+    result = surface_footprint(
+        (tuple(vertex.co) for vertex in obj.data.vertices),
+        (tuple(polygon.vertices) for polygon in obj.data.polygons),
+        origin=(
+            obj["landxml_origin_easting"],
+            obj["landxml_origin_northing"],
+            obj["landxml_origin_elevation"],
+        ),
+        unit_to_meters=obj["landxml_unit_to_meters"],
+        horizontal_epsg=epsg,
+        name=obj.name,
+    )
+    result["landxml"]["source_sha256"] = obj.get("landxml_source_sha256", "")
+    Path(filepath).write_text(
+        json.dumps(result, indent=2, ensure_ascii=True, allow_nan=False) + "\n", encoding="utf-8",
+    )
+    return result
 
 
 def _ortho_material(image: bpy.types.Image) -> bpy.types.Material:
@@ -437,4 +531,3 @@ def apply_orthophoto(
         )
         obj["landxml_ortho_georeference"] = bounds.source
     return bounds, total, outside
-

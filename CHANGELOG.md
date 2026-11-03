@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+- Select a named LandXML COGO point as the shared import pivot with searchable name/description suggestions, exact source XYZ preview, and point identity in the survey sidecar.
+- Export visible TIN footprints as geographic GeoJSON preserving islands and holes, with hole-free pieces and an Unreal Editor Python helper for Cesium Cartographic Polygon actors.
+- Make the NAD83 selector an editable search field: search zone names or EPSG codes, select a suggestion, or type an EPSG code directly.
+- Add a US NAD83 projected-coordinate-system dropdown populated from the bundled EPSG catalog, including State Plane and UTM zones, while retaining manual EPSG entry for other datums.
+- Respect LandXML invisible-face flags (`F i="1"`), preventing Civil 3D hidden triangulation from filling gaps or connecting visible areas. Preserve source records and report excluded faces separately.
+- Add State Plane EPSG entry and WGS84 longitude/latitude conversion for the survey pivot, retaining US survey feet as the missing/ambiguous-unit fallback and respecting declared units.
+- Export a portable survey-reference JSON sidecar with exact origin, CRS, units, elevation datum, projection convergence/scale, and a separately supplied Cesium ellipsoid height.
+- Preserve pivot input precision with text fields; Python import-operator pivot arguments now use strings instead of floats.
+- Bundle pyproj 3.7.2 and certifi; projection support requires glibc 2.28+, macOS 13+ Intel or macOS 14+ Apple Silicon.
+- Persist survey metadata across Blender saves and reject sidecar export after object placement transforms.
+
 ## 0.3.0 - 2026-10-23
 
 - Require Blender 5.2 or later (Python 3.13); drop the Python 3.11 wheels used by Blender 4.2–5.0.
