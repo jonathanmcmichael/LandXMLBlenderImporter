@@ -16,9 +16,15 @@ from pyproj import CRS
 class SurveyReferenceTests(unittest.TestCase):
     def test_search_by_zone_tokens_and_epsg(self):
         matches = search_us_nad83_crs("colorado central ftUS")
-        self.assertEqual(len(matches), 1)
+        self.assertEqual(len(matches), 4)
         self.assertIn("EPSG:2232", matches[0][0])
-        self.assertEqual(search_us_nad83_crs("2232"), matches)
+        self.assertEqual(search_us_nad83_crs("2232"), matches[:1])
+        realizations = search_us_nad83_crs("missouri east")
+        self.assertEqual(
+            [label.rsplit(" - EPSG:", 1)[1] for label, _ in realizations],
+            ["26996", "6512", "2815", "3602"],
+        )
+        self.assertEqual(len(search_us_nad83_crs("2011 colorado central ftUS")), 1)
         self.assertEqual(len(search_us_nad83_crs("")), len(us_nad83_crs_items()) - 1)
         self.assertEqual(search_us_nad83_crs("not a real zone"), ())
 
@@ -49,11 +55,20 @@ class SurveyReferenceTests(unittest.TestCase):
         self.assertNotIn("4326", codes)
         self.assertIn("26986", codes)
         self.assertNotIn("32198", codes)  # NAD83 / Quebec Lambert is not a US CRS.
+        self.assertNotIn("2945", codes)  # NAD83(CSRS) is Canadian.
+        self.assertNotIn("23304", codes)  # ICS83 Chicago uses Northing/Easting axes.
+        for code in ("6512", "6428", "2815", "3602"):
+            self.assertIn(code, codes)
         for code, label, description in items[1:]:
             with self.subTest(code=code):
                 crs = CRS.from_epsg(code)
                 self.assertTrue(crs.is_projected)
-                self.assertTrue(crs.name.startswith("NAD83 /"))
+                self.assertTrue(crs.name.startswith(
+                    ("NAD83 /", "NAD83(HARN) /", "NAD83(NSRS2007) /", "NAD83(2011) /")
+                ))
+                self.assertEqual(
+                    tuple(axis.direction for axis in crs.axis_info[:2]), ("east", "north")
+                )
                 self.assertIn(f"EPSG:{code}", label)
                 self.assertTrue("United States" in description or "USA" in description)
 

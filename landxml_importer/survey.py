@@ -11,13 +11,21 @@ from pyproj.enums import PJType
 from pyproj.exceptions import ProjError
 
 
+NAD83_REALIZATION_PREFIXES = ("NAD83 /", "NAD83(HARN) /", "NAD83(NSRS2007) /", "NAD83(2011) /")
+
+
+def _is_easting_northing(code: str) -> bool:
+    return tuple(axis.direction for axis in CRS.from_epsg(code).axis_info[:2]) == ("east", "north")
+
+
 @lru_cache(maxsize=1)
 def us_nad83_crs_items() -> tuple[tuple[str, str, str], ...]:
     """Keep enum strings alive and use the bundled EPSG catalog, not a zone list."""
     systems = [
         info for info in query_crs_info(auth_name="EPSG", pj_types=PJType.PROJECTED_CRS)
-        if info.name.startswith("NAD83 /")
+        if info.name.startswith(NAD83_REALIZATION_PREFIXES)
         and ("United States" in info.area_of_use.name or "USA" in info.area_of_use.name)
+        and _is_easting_northing(info.code)
     ]
     systems.sort(key=lambda info: (info.name.casefold(), int(info.code)))
     return (
