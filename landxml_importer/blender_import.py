@@ -292,6 +292,15 @@ def import_landxml(
                     f"{len(mesh.vertices)} vertices and {len(mesh.polygons)} faces."
                 )
 
+            skipped_reasons = ", ".join(
+                f"{reason}: {count}" for reason, count in data.skipped_face_reasons
+            ) or "none"
+            print(
+                f"LandXML surface '{data.name}': {len(data.vertices)} vertices, "
+                f"{len(data.faces)} faces, {data.skipped_face_count} skipped "
+                f"({skipped_reasons})."
+            )
+
             obj["landxml_source"] = str(source_path)
             obj["landxml_category"] = "Surface"
             obj["landxml_import_collection"] = collection.name

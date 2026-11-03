@@ -190,5 +190,32 @@ def main():
     check(len(points) == 1 and tuple(points[0].data.vertices[0].co) == (0, 0, 0),
           "selected COGO point imports at local zero")
 
+    with tempfile.TemporaryDirectory() as directory:
+        diagnostic_path = Path(directory) / "diagnostics.xml"
+        diagnostic_path.write_text(
+            """<LandXML><Surfaces><Surface name="Diagnostics"><Definition>
+            <Pnts><P id="1">0 0 0</P><P id="2">0 1 0</P>
+            <P id="3">1 0 0</P><P id="4">1 1 0</P></Pnts>
+            <Faces><F>1 2 3</F><F>1 2 3 4</F><F>1 2 999</F></Faces>
+            </Definition></Surface></Surfaces></LandXML>""",
+            encoding="utf-8",
+        )
+        status = bpy.ops.import_scene.landxml_tin(
+            filepath=str(diagnostic_path), source_units="METERS",
+        )
+        check(status == {"FINISHED"}, "import operator accepts a surface with skipped faces")
+        diagnostic_surface = bpy.context.active_object
+        reasons = json.loads(diagnostic_surface["landxml_skipped_face_reasons"])
+        check(reasons == {"missing_point": 1, "non_triangular": 1}
+              and diagnostic_surface["landxml_skipped_face_count"] == 2,
+              "operator retains per-surface skip counts and reasons")
+
+        empty_path = Path(directory) / "no_surfaces.xml"
+        empty_path.write_text("<LandXML><Surfaces><Surface name='Empty'/></Surfaces></LandXML>",
+                              encoding="utf-8")
+        status = bpy.ops.import_scene.landxml_tin(
+            filepath=str(empty_path), source_units="METERS",
+        )
+        check(status == {"FINISHED"}, "import operator handles a document with no usable TIN surfaces")
 
 main()

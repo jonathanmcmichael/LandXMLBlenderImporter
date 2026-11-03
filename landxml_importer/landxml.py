@@ -18,6 +18,7 @@ UNIT_TO_METERS = {
     "KILOMETERS": 1000.0,
     "INCHES": 0.0254,
     "INTERNATIONAL_FEET": 0.3048,
+    # NIST defines the legacy U.S. survey foot as exactly 1200/3937 m: https://www.nist.gov/pml/us-surveyfoot
     "US_SURVEY_FEET": 1200.0 / 3937.0,
     "MILES": 1609.344,
     "US_SURVEY_MILES": 5280.0 * 1200.0 / 3937.0,

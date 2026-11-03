@@ -382,6 +382,23 @@ class LandXMLTests(unittest.TestCase):
         self.assertEqual(first.vertices[0], (0.0, 0.0, 10.0))
         self.assertEqual(second.vertices[0], (200.0, 100.0, 20.0))
 
+    def test_shared_origin_preserves_small_offsets_at_large_coordinates(self):
+        surface = self._parse_single_surface(
+            """
+            <P id="1">3000000.123456789 1600000.987654321 100</P>
+            <P id="2">3000000.123456789 1600000.988654321 100</P>
+            <P id="3">3000000.124456789 1600000.987654321 100</P>
+            <F>1 2 3</F>
+            """
+        )
+        mesh = build_mesh_data(
+            surface,
+            origin=shared_origin((surface,)),
+            source_units="INTERNATIONAL_FEET",
+        )
+        self.assertAlmostEqual(mesh.vertices[1][0], 0.001 * 0.3048, delta=1e-10)
+        self.assertAlmostEqual(mesh.vertices[2][1], 0.001 * 0.3048, delta=1e-10)
+
     def test_international_feet_convert_to_meters(self):
         mesh = build_mesh_data(
             self.surfaces[0],
@@ -422,6 +439,10 @@ class LandXMLTests(unittest.TestCase):
         self.assertEqual(surface.faces, (("1", "2", "3"),))
         self.assertEqual(surface.skipped_face_count, 1)
         self.assertEqual(surface.skipped_face_reasons, (("non_triangular", 1),))
+        mesh = build_mesh_data(surface)
+        self.assertEqual(mesh.faces, ((0, 1, 2),))
+        self.assertEqual(mesh.skipped_face_count, 1)
+        self.assertEqual(mesh.skipped_face_reasons, (("non_triangular", 1),))
 
     def test_missing_point_face_reports_skip_reason(self):
         surface = self._parse_single_surface(
@@ -431,7 +452,50 @@ class LandXMLTests(unittest.TestCase):
             """
         )
         self.assertEqual(surface.faces, (("1", "2", "3"),))
+        self.assertEqual(surface.skipped_face_count, 1)
         self.assertEqual(surface.skipped_face_reasons, (("missing_point", 1),))
+        mesh = build_mesh_data(surface)
+        self.assertEqual(mesh.faces, ((0, 1, 2),))
+        self.assertEqual(mesh.skipped_face_count, 1)
+        self.assertEqual(mesh.skipped_face_reasons, (("missing_point", 1),))
+
+    def test_duplicate_surface_point_ids_raise(self):
+        with self.assertRaisesRegex(LandXMLError, "duplicate point ID '1'"):
+            self._parse_document(
+                """
+                <Surfaces><Surface name="Duplicate">
+                  <Definition><Pnts>
+                    <P id="1">0 0 0</P><P id="1">0 1 0</P><P id="3">1 0 0</P>
+                  </Pnts><Faces><F>1 1 3</F></Faces></Definition>
+                </Surface></Surfaces>
+                """
+            )
+
+    def test_surface_without_definition_wrapper_is_parsed(self):
+        document = self._parse_document(
+            """
+            <Surfaces><Surface name="No Definition">
+              <Pnts><P id="1">0 0 0</P><P id="2">0 1 0</P><P id="3">1 0 0</P></Pnts>
+              <Faces><F>1 2 3</F></Faces>
+            </Surface></Surfaces>
+            """
+        )
+        self.assertEqual(len(document.surfaces), 1)
+        self.assertEqual(document.surfaces[0].faces, (("1", "2", "3"),))
+
+    def test_unnamed_surface_uses_generated_name(self):
+        document = self._parse_document(
+            """
+            <Surfaces><Surface><Definition><Pnts>
+              <P id="1">0 0 0</P><P id="2">0 1 0</P><P id="3">1 0 0</P>
+            </Pnts><Faces><F>1 2 3</F></Faces></Definition></Surface></Surfaces>
+            """
+        )
+        self.assertEqual(document.surfaces[0].name, "LandXML_Surface_1")
+
+    def test_malformed_xml_raises_landxml_error(self):
+        with self.assertRaisesRegex(LandXMLError, "Could not read LandXML"):
+            self._parse_xml_document("<LandXML>")
 
     def test_degenerate_face_is_retained_and_reported(self):
         surface = self._parse_single_surface(
@@ -466,16 +530,9 @@ class LandXMLTests(unittest.TestCase):
 
     def _parse_single_surface(self, contents):
         document = f"<LandXML><Surfaces><Surface name='Test'><Definition>{contents}</Definition></Surface></Surfaces></LandXML>"
-        with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False) as file:
-            file.write(document)
-            path = Path(file.name)
-        try:
-            return parse_landxml(path)[0]
-        finally:
-            path.unlink()
+        return self._parse_xml_document(document).surfaces[0]
 
-    def _parse_document(self, contents):
-        document = f"<LandXML>{contents}</LandXML>"
+    def _parse_xml_document(self, document):
         with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False) as file:
             file.write(document)
             path = Path(file.name)
@@ -483,6 +540,9 @@ class LandXMLTests(unittest.TestCase):
             return parse_landxml_document(path)
         finally:
             path.unlink()
+
+    def _parse_document(self, contents):
+        return self._parse_xml_document(f"<LandXML>{contents}</LandXML>")
 
 
 if __name__ == "__main__":

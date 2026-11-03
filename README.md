@@ -32,7 +32,7 @@ In Blender, open **Edit → Preferences → Extensions → ⌄ → Install from 
 1. Choose **File → Import → LandXML Data (.xml)** and pick the file.
 2. Leave **Source Units** on **From LandXML (US Feet Fallback)**.
 3. Enable **Use LandXML COGO Pivot** and choose `1 - Building Corner` from **Pivot COGO Point**. Check that the previewed Easting/Northing/Elevation matches Civil 3D.
-4. In **US NAD83 Coordinate System**, type `Missouri East` and pick **NAD83 / Missouri East - EPSG:26996**, or type `26996`. For NAD83(2011) or HARN drawings, type that EPSG code instead.
+4. In **US NAD83 Coordinate System**, type `Missouri East` and pick **NAD83 / Missouri East - EPSG:26996**, or type `26996`. The search also lists the NAD83(2011), NAD83(HARN) and NAD83(NSRS2007) versions of each zone (e.g. **NAD83(2011) / Missouri East - EPSG:6512**); pick the one that matches the drawing's coordinate system in Civil 3D (**Settings → Drawing Settings → Units and Zone**).
 5. Set **Source Elevation Datum** (for example `NAVD88`). Fill in **Cesium Pivot Height (m)** only if you know the pivot's WGS84 ellipsoid height.
 6. Click **Import**. The building corner is now at Blender `(0, 0, 0)` and the terrain is in meters. Invisible Civil 3D triangles are left out, so separate areas stay separate.
 
@@ -146,6 +146,7 @@ The XML/domain and georeferencing code stays independent of `bpy`, while the ope
 - Uses one shared origin for georeferenced surfaces and linework so they remain aligned; station/offset geometry stays local.
 - Stores the complete structured LandXML tree in an indexed JSON Text datablock plus bounded JSONL Text chunks and links them from the import collection and created objects.
 - Stores source and output face counts, boundary-affected face counts, source-unit, source-file hash, and output geometry fingerprints as custom properties.
+- Prints a per-surface diagnostic to Blender's system console with vertex/face counts and skipped-face counts by reason. The import popup and operator report summarize totals; surface custom properties retain the detailed counts.
 - Supports millimeters, centimeters, meters, kilometers, inches, international feet, US survey feet, and international/US survey miles as source units.
 - Reads declared units automatically; generic `foot` defaults to US survey feet with a warning and can be overridden.
 - Converts imported coordinates to meters, matching Blender's conventional unit scale.
@@ -166,18 +167,44 @@ The XML/domain and georeferencing code stays independent of `bpy`, while the ope
 8. Review the validation popup for source/output face counts, clipped source faces, linework objects, units, and skipped or degenerate faces.
 9. In **US NAD83 Coordinate System**, type a zone name (for example `Colorado Central`) or EPSG number to search and select a suggestion. You can also type a code directly, such as `EPSG:2232`, including codes for other datums. Enter **Source Elevation Datum** separately. Leave the CRS field blank if unknown: the pivot is preserved, but no geographic anchor is invented.
 
+Unreadable XML, unsupported point order or units, and other import errors are reported by the operator. If no usable TIN surfaces are found, a warning explains that recognized linework or points may still have been imported. Skipped faces are reported by reason (`non_triangular` or `missing_point`); degenerate faces are retained and counted separately. Find durable per-surface counts on the surface object's `landxml_*_count` custom properties and the JSON `landxml_skipped_face_reasons` property.
+
 The import creates a `LandXML_<filename>` collection plus a `LandXML_<filename>_metadata.json` index Text datablock and bounded JSONL record chunks. Each record stores its source node ID, parent ID, sibling order, name, namespace, attributes, text, and mixed-content tail. Mesh, curve, and point-cloud objects link to the index. Rebuild the full source tree by joining records through their parent and child indices.
 
 ## Supported input and limitations
 
-- Tested with a Civil 3D 2027 LandXML export and standard LandXML 1.2 `Northing Easting Elevation` point order.
-- Source units cover all eight LandXML 1.2 metric and imperial linear-unit values; generic feet default to US survey feet with an override warning. International feet are also available as an explicit override. All imported geometry is converted to meters.
-- TIN faces must contain exactly three point IDs. Non-triangular records are skipped rather than truncated, and their reason is recorded in `landxml_skipped_face_reasons`.
-- Faces with unresolved point IDs are skipped; their count and reason are also recorded in `landxml_skipped_face_reasons`.
-- Zero-area, repeated-vertex, and collinear source triangles are retained without modification and counted in `landxml_degenerate_face_count`.
-- All LandXML records are retained in structured metadata. Dedicated geometry adapters cover TIN surfaces, boundaries, breaklines, CgPoints, Locations, pipes, profiles, cross-sections, PlanFeatures, and `CoordGeom` lines/circular curves; other standard entities remain available as structured records but do not yet have specialized Blender geometry adapters.
-- Automatic coordinate reference system discovery and mesh reprojection are not performed. A user-specified projected EPSG code converts the pivot to WGS84 longitude/latitude; source coordinate-system records are retained in metadata.
-- Circular `CoordGeom` arcs are sampled at five-degree maximum angular intervals for Blender curve geometry; source arc parameters remain in metadata.
+### Supported input
+
+| Input | Supported and verified |
+|---|---|
+| LandXML | LandXML 1.2; the official XSD is pinned in the test fixtures. |
+| Exporter | A Civil 3D 2027 export has been imported in Blender 5.2.2 LTS. No other exporter/version combination is claimed as real-world tested. |
+| Point order | Standard `Northing Easting Elevation` (`NEZ`); `Easting Northing Elevation` (`ENZ`) is available for non-standard exports. |
+| Linear units | Millimeters, centimeters, meters, kilometers, inches, international feet, US survey feet, miles, and US survey miles. Generic `foot` defaults to US survey feet with a warning; select an explicit override when the source uses international feet. Geometry is converted to meters. |
+| TIN topology | Triangles only: each face must reference exactly three point IDs. |
+
+Non-triangular faces are skipped rather than truncated; faces that reference missing point IDs are also skipped. Both reasons and counts are retained in `landxml_skipped_face_reasons`. Zero-area, repeated-vertex, and collinear triangles are preserved and counted in `landxml_degenerate_face_count`.
+
+### Limitations and intentional non-goals
+
+- Every LandXML record is retained in structured metadata, but dedicated geometry adapters cover only TIN surfaces, boundaries, breaklines, CgPoints, Locations, pipes, profiles, cross-sections, PlanFeatures, and `CoordGeom` lines/circular curves. Other entities have no specialized Blender geometry adapter.
+- Non-triangular face records are not triangulated or truncated; changing their topology would invent geometry or discard source IDs.
+- Automatic coordinate-system discovery, vertical-datum conversion, and whole-mesh reprojection are not performed. A user-specified projected EPSG code converts the pivot to WGS84 longitude/latitude; source coordinate-system records remain in metadata.
+- Circular `CoordGeom` arcs are sampled at five-degree maximum angular intervals for Blender curves; original arc parameters remain in metadata.
+- A real-world multi-surface export suitable for publication is not currently available in the repository. The existing [two_surfaces.xml](tests/fixtures/two_surfaces.xml) fixture is synthetic and covers parser-level shared-origin behavior only.
+
+To manually verify a real multi-surface export when one is available, import it in Blender with the source's known point order and units, confirm that every expected TIN appears under the import collection's **Surfaces** child, compare each object's `landxml_source_face_count` and skipped-face properties against the source, and check that all objects have the same `landxml_origin_easting` and `landxml_origin_northing`. Save and reopen the `.blend`, then confirm the surface objects and metadata remain present. Do not add an actual project export to the repository unless it has been sanitized and is cleared for redistribution.
+
+### Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Terrain is rotated or mirrored | Use standard LandXML 1.2 `Northing Easting Elevation` first. Try `Easting Northing Elevation` only if the exporter reverses the coordinate pair. |
+| Terrain scale is wrong | Check the LandXML unit declaration and the **Source Units** override. Generic or missing `foot` declarations default to US survey feet; use international feet when that matches the source. |
+| Expected surfaces are missing | Confirm the selected file contains TIN `Surface` records with usable points and triangular faces. Review the operator warning and Blender system console; invalid or non-triangular faces can leave a surface without usable mesh geometry. |
+| Faces were skipped | Inspect `landxml_skipped_face_reasons`: `non_triangular` means a face did not have exactly three IDs; `missing_point` means at least one referenced point ID was unavailable. Correct the source rather than relying on truncation or guessed points. |
+
+The US survey foot is a legacy unit equal to exactly 1200/3937 meters. [NIST documents its definition and its retirement for new work beginning in 2023](https://www.nist.gov/pml/us-surveyfoot); it remains supported here for legacy LandXML and survey data.
 
 ## TIN integrity
 
@@ -189,7 +216,7 @@ To recover a source coordinate from a local mesh vertex, divide its Blender coor
 
 ## Civil 3D State Plane to Unreal / Cesium
 
-The Civil 3D workflow offers an editable **US NAD83 Coordinate System** search field and defaults to US survey feet when the LandXML units are ambiguous or absent. Suggestions list non-deprecated original NAD83 projected CRSs whose EPSG area of use includes the US, including State Plane, UTM and regional systems. Search by zone name, unit variant or EPSG code. Names include the zone, unit variant (when part of the EPSG name), and EPSG code; area descriptions identify the applicable region. NAD83(HARN), NAD83(NSRS2007) and NAD83(2011) are distinct realizations: enter their EPSG codes directly. Partial names must be completed by selecting a suggestion; ambiguous text is rejected. There is deliberately no default zone: State Plane requires the correct zone **and datum**. Export Civil 3D LandXML in the project's original survey coordinates; do not subtract a second origin in Civil 3D.
+The Civil 3D workflow offers an editable **US NAD83 Coordinate System** search field and defaults to US survey feet when the LandXML units are ambiguous or absent. Suggestions list non-deprecated NAD83, NAD83(2011), NAD83(HARN) and NAD83(NSRS2007) projected CRSs with Easting/Northing axes whose EPSG area of use includes the US, including State Plane, UTM and regional systems. Search by zone name, unit variant, realization (e.g. `2011`) or EPSG code; each zone's original NAD83 entry is listed first. The realizations are distinct datums, so choose the one the Civil 3D drawing uses; they differ by up to about a meter. Other datums can still be entered by EPSG code. Partial names must be completed by selecting a suggestion; ambiguous text is rejected. There is deliberately no default zone: State Plane requires the correct zone **and datum**. Export Civil 3D LandXML in the project's original survey coordinates; do not subtract a second origin in Civil 3D.
 
 1. Enable **Use Survey Pivot** and enter a known Easting, Northing and Elevation in the resolved source units. These text fields retain double precision rather than rounding large survey coordinates through Blender float properties. Python operator callers must now pass pivot values as strings.
    Or use **Use LandXML COGO Pivot** to choose an exported survey/control point without copying coordinates. All georeferenced geometry, including the selected point, uses the same XYZ offset; the selected point lands at local zero. Its name/description is retained as `pivot_point` in the survey-reference JSON. Elevation-less COGO records follow the parser's existing zero-elevation convention; verify the preview before choosing a 3D pivot. Python operator callers use `use_cogo_pivot=True, pivot_point="1"`; the core importer accepts `pivot_point_name="1"`.
@@ -327,11 +354,33 @@ $env:BLENDER_USER_RESOURCES = "$env:TEMP\landxml-smoke"
 blender -b --factory-startup --python-exit-code 1 --python scripts/blender_smoke_test.py -- landxml_tin_importer-0.4.0-windows_x64.zip
 ```
 
+## Contributor validation
+
+Run the Blender-independent tests from the repository root:
+
+```powershell
+python -W error::DeprecationWarning -m unittest discover -s tests -v
+```
+
+The Blender-independent code is tested on Python 3.13 and 3.14. Keep source syntax and APIs compatible with Python 3.13: Blender 5.2's runtime, extension wheels, and platform-wheel checks remain on CPython 3.13. Python 3.14 test coverage does not change the extension's Blender runtime requirements.
+
+Before building, fetch the manifest-pinned platform wheels, validate the extension, and build platform ZIPs:
+
+```powershell
+python scripts/fetch_wheels.py
+blender --command extension validate landxml_importer
+blender --command extension build --source-dir landxml_importer --output-dir dist --split-platforms
+```
+
+These Blender commands assume `blender` is on `PATH`; otherwise invoke the installed executable by its full path. Run the isolated Blender smoke test above against the ZIP for the current platform after building.
+
+Keep test fixtures small and sanitized, and include only data that is cleared for redistribution. Prefer hand-authored minimal XML for parser edge cases; add parser expectations to `tests/test_landxml.py` and schema/adapter expectations to `tests/test_landxml_schema.py`. Never commit confidential project exports or large production surfaces.
+
 ## Continuous integration and releases
 
 [.github/workflows/ci.yml](.github/workflows/ci.yml) runs on every push:
 
-1. Unit tests on Python 3.13 (Blender 5.2's bundled version).
+1. Unit tests on Python 3.13 (Blender 5.2's bundled version) and Python 3.14, with deprecation warnings treated as errors.
 2. On Linux with Blender 5.2.2: fetch wheels, validate, build all platform ZIPs, and run the smoke test against the `linux_x64` ZIP. The ZIPs are uploaded as the `extension-zips` artifact.
 3. On a `v*` tag: check that the tag matches the manifest version, then publish a GitHub release with all ZIPs and that version's `CHANGELOG.md` section as notes.
 
