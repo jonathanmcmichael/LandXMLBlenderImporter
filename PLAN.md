@@ -27,7 +27,7 @@ convenience features or release automation.
 - [x] Route every import through the extension's shared parser and conversion core; the legacy root `landxml_import.py` script has been removed.
 - [x] Validate with schema-backed tests and Blender 5.2 import of the supplied Civil 3D 2027 export.
 - [ ] Add specialized geometry adapters for remaining schema types such as roadway design/traffic records, survey observations, spirals, and volume geometry. These are currently preserved in structured metadata.
-- [ ] Verify the per-platform Shapely wheels by installing each split build on macOS and Linux as well as Windows.
+- [ ] Verify the per-platform Shapely wheels by installing each split build on macOS and Linux as well as Windows. CI now installs and exercises the host-compatible manifest wheels on x64 and arm64 runners for all three operating systems; mark complete after that matrix passes.
 
 ## Phase 1: Data Integrity and Parser Coverage
 
@@ -36,14 +36,14 @@ convenience features or release automation.
 ### Phase 1 Work
 
 - [x] Pin the official LandXML 1.2 XSD and test that specialized adapters are schema-defined while unadapted elements/attributes remain in the generic record tree.
-- [ ] Define the handling of `<F>` elements with more than three point IDs in `landxml_importer/landxml.py`.
+- [x] Define the handling of `<F>` elements with more than three point IDs in `landxml_importer/landxml.py`.
   - Preferred behavior: skip non-triangle faces, increment the skipped-face count, and retain a separate reason/count for unsupported face topology.
   - Do not silently truncate an n-gon to its first three IDs.
-- [ ] Ensure every point ID referenced by an accepted face exists, not only the first three IDs.
-- [ ] Add unit tests for duplicate point IDs, missing `<Definition>` wrappers, unnamed surfaces, malformed XML, and unsupported point order.
-- [ ] Add tests for non-triangle faces and invalid point references, asserting both geometry and diagnostic counts.
-- [ ] Add a large-coordinate fixture or direct test to verify shared-origin shifting preserves relative offsets without unexpected precision loss.
-- [ ] Add complete type annotations to private parser helpers where they clarify XML and domain boundaries.
+- [x] Ensure every point ID referenced by an accepted face exists, not only the first three IDs.
+- [x] Add unit tests for duplicate point IDs, missing `<Definition>` wrappers, unnamed surfaces, malformed XML, and unsupported point order.
+- [x] Add tests for non-triangle faces and invalid point references, asserting both geometry and diagnostic counts.
+- [x] Add a large-coordinate fixture or direct test to verify shared-origin shifting preserves relative offsets without unexpected precision loss.
+- [x] Add complete type annotations to private parser helpers where they clarify XML and domain boundaries; the parser helpers already have typed parameters and return contracts.
 
 ### Phase 1 Completion Criteria
 
@@ -57,11 +57,11 @@ convenience features or release automation.
 
 ### Phase 2 Work
 
-- [ ] Emit a concise diagnostic per imported surface from `landxml_importer/blender_import.py`: surface name, vertex count, face count, and skipped-face counts by reason.
-- [ ] Surface meaningful messages in the Blender operator for unreadable XML, no usable TIN surfaces, unsupported units, and unsupported point order.
-- [ ] Add a post-import summary to the operator report when one or more records were skipped.
-- [ ] Keep object custom properties as the durable source of origin, unit, and import statistics.
-- [ ] Document where users can find diagnostic output and what common messages mean.
+- [x] Emit a concise diagnostic per imported surface from `landxml_importer/blender_import.py`: surface name, vertex count, face count, and skipped-face counts by reason.
+- [x] Surface meaningful messages in the Blender operator for unreadable XML, no usable TIN surfaces, unsupported units, and unsupported point order.
+- [x] Add a post-import summary to the operator report when one or more records were skipped.
+- [x] Keep object custom properties as the durable source of origin, unit, and import statistics.
+- [x] Document where users can find diagnostic output and what common messages mean.
 
 ### Phase 2 Completion Criteria
 
@@ -75,11 +75,11 @@ convenience features or release automation.
 
 ### Phase 3 Work
 
-- [ ] Add a concise supported-input section to `README.md`: tested LandXML version/exporter combinations, accepted units, point orders, and triangle-only expectation.
-- [ ] Add a limitations section explaining the chosen non-triangle behavior and intentional non-goals.
-- [ ] Add a sanitized real-world multi-surface LandXML fixture, or document why it cannot be published and record the manual validation procedure instead.
-- [ ] Verify the US survey foot conversion against an authoritative reference and add a short source comment next to the constant.
-- [ ] Add a short troubleshooting table for rotated/mirrored terrain, incorrect scale, missing surfaces, and skipped faces.
+- [x] Add a concise supported-input section to `README.md`: tested LandXML version/exporter combinations, accepted units, point orders, and triangle-only expectation.
+- [x] Add a limitations section explaining the chosen non-triangle behavior and intentional non-goals.
+- [x] Add a sanitized real-world multi-surface LandXML fixture, or document why it cannot be published and record the manual validation procedure instead; no publishable real-world multi-surface export is currently available.
+- [x] Verify the US survey foot conversion against an authoritative reference and add a short source comment next to the constant.
+- [x] Add a short troubleshooting table for rotated/mirrored terrain, incorrect scale, missing surfaces, and skipped faces.
 
 ### Phase 3 Completion Criteria
 
@@ -111,7 +111,7 @@ convenience features or release automation.
 - [x] Confirm `landxml_import.py` is not needed for backwards compatibility or external users.
 - [x] Delete it.
 - [x] Keep the packaged extension limited to `landxml_importer/` and update project-layout documentation after cleanup.
-- [ ] Add lightweight contributor guidance: local test command, extension build command, and fixture expectations.
+- [x] Add lightweight contributor guidance: local test command, extension build command, and fixture expectations.
 
 ### Phase 5 Completion Criteria
 
@@ -120,11 +120,11 @@ convenience features or release automation.
 
 ## Suggested Delivery Sequence
 
-1. Complete Phase 1 in a focused parser-and-tests pull request.
-2. Complete Phase 2 with a Blender manual smoke test and README diagnostic notes.
-3. Complete Phase 3 once a sanitizable multi-surface export is available.
-4. Add Phase 4 CI before the next feature release.
-5. Complete Phase 5 after confirming no users depend on the legacy script.
+1. [x] Complete Phase 1 parser coverage and integrity tests.
+2. [x] Complete Phase 2 diagnostics and the Blender headless import smoke test.
+3. [x] Complete Phase 3 compatibility documentation; record a manual multi-surface procedure until a publishable real-world sample is available.
+4. [x] Add Phase 4 CI before the next feature release.
+5. [x] Complete Phase 5 contributor guidance and repository cleanup.
 
 ## Deliberate Limits
 

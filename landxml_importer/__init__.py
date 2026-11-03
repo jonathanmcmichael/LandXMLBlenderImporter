@@ -1,6 +1,7 @@
 """LandXML TIN Importer Blender extension."""
 
 from functools import lru_cache
+import json
 from pathlib import Path
 
 import bpy
@@ -239,6 +240,10 @@ class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
 
         imported = result.surfaces
         skipped = sum(obj["landxml_skipped_face_count"] for obj in imported)
+        skipped_reasons = {}
+        for obj in imported:
+            for reason, count in json.loads(obj["landxml_skipped_face_reasons"]).items():
+                skipped_reasons[reason] = skipped_reasons.get(reason, 0) + count
         degenerate = sum(obj["landxml_degenerate_face_count"] for obj in imported)
         source_faces = sum(obj["landxml_source_face_count"] for obj in imported)
         clipped_faces = sum(obj["landxml_boundary_clipped_face_count"] for obj in imported)
@@ -261,14 +266,24 @@ class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
         )
         if result.unit_warning:
             self.report({"WARNING"}, result.unit_warning)
+        if not imported:
+            self.report(
+                {"WARNING"},
+                "No usable TIN surfaces were found; recognized linework and points were imported if present.",
+            )
         if not horizontal_epsg.strip():
             self.report({"WARNING"}, "No projected CRS supplied; pivot preserved without Cesium longitude/latitude")
         elif not self.ellipsoid_height.strip():
             self.report({"WARNING"}, "Cesium longitude/latitude available; ellipsoid height still unknown")
         if skipped or degenerate:
+            reason_summary = ", ".join(
+                f"{reason}: {count}" for reason, count in sorted(skipped_reasons.items())
+            )
+            skipped_summary = f" ({reason_summary})" if reason_summary else ""
             self.report(
                 {"WARNING"},
-                f"Imported {len(imported)} surface(s); skipped {skipped} malformed face(s), retained {degenerate} degenerate face(s).",
+                f"Imported {len(imported)} surface(s); skipped {skipped} malformed face(s)"
+                f"{skipped_summary}, retained {degenerate} degenerate face(s).",
             )
         else:
             self.report({"INFO"}, f"Imported {len(imported)} LandXML surface(s)")
