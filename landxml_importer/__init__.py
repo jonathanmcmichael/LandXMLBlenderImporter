@@ -1,16 +1,94 @@
 """LandXML TIN Importer Blender extension."""
 
+from functools import lru_cache
+from pathlib import Path
+
 import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
 from bpy.types import Operator
-from bpy_extras.io_utils import ImportHelper
+from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from .blender_import import (
     apply_breaklines_to_surface,
     apply_orthophoto,
+    export_survey_reference,
+    export_cesium_footprint,
+    export_unreal_package,
     import_landxml,
     object_geometry_fingerprint,
 )
+from .survey import parse_coordinate, resolve_crs_entry, search_us_nad83_crs
+from .landxml import LandXMLError, cogo_pivot, read_cogo_points
+
+
+@lru_cache(maxsize=1)
+def _cached_cogo_points(filepath, point_order, modified, size):
+    return read_cogo_points(filepath, point_order=point_order)
+
+
+def _pivot_candidates(operator):
+    path = Path(operator.filepath)
+    if not operator.filepath or not path.is_file():
+        raise LandXMLError("Select a LandXML file to list its COGO points")
+    stat = path.stat()
+    return _cached_cogo_points(str(path.resolve()), operator.point_order, stat.st_mtime_ns, stat.st_size)
+
+
+def _cogo_label(point):
+    attributes = dict(point.attributes)
+    name = attributes.get("name", "")
+    description = attributes.get("desc") or attributes.get("code")
+    return f"{name} - {description}" if description else name
+
+
+def _selected_cogo_name(operator):
+    points = _pivot_candidates(operator)
+    selection = operator.pivot_point.strip()
+    labels = [point for point in points if _cogo_label(point) == selection]
+    name = dict(labels[0].attributes).get("name", "") if len(labels) == 1 else selection
+    cogo_pivot(points, name)
+    return name
+
+
+def _search_cogo_points(self, context, edit_text):
+    try:
+        points = _pivot_candidates(self)
+    except (OSError, ValueError) as exc:
+        self.report({"ERROR"}, str(exc))
+        return []
+    tokens = edit_text.casefold().split()
+    return [
+        (_cogo_label(point), f"E/N/Z: {point.coordinate}")
+        for point in points
+        if dict(point.attributes).get("name")
+        and all(token in _cogo_label(point).casefold() for token in tokens)
+    ]
+
+
+def _search_coordinate_system(self, context, edit_text):
+    return search_us_nad83_crs(edit_text)
+
+
+def _footprint_offset_property():
+    return FloatProperty(
+        name="Edge Offset (m)",
+        description=(
+            "Shrink (negative) or grow (positive) the cutout from the exact TIN edge. "
+            "Negative keeps Cesium terrain under the TIN edge so no see-through gap appears"
+        ),
+        default=0.0, soft_min=-10.0, soft_max=10.0, step=10, precision=2,
+    )
+
+
+def _footprint_simplify_property():
+    return FloatProperty(
+        name="Simplify (m)",
+        description=(
+            "Drop boundary vertices that deviate less than this from the edge. "
+            "Use an inward offset at least this large to stay inside the TIN"
+        ),
+        default=0.0, min=0.0, soft_max=5.0, step=10, precision=2,
+    )
 
 
 class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
@@ -26,7 +104,7 @@ class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
         name="Source Units",
         description="Use the file declaration when available; override ambiguous or missing units",
         items=(
-            ("AUTO", "From LandXML", "Use declared units; generic feet default to US survey feet with a warning"),
+            ("AUTO", "From LandXML (US Feet Fallback)", "Use declared units; missing units or generic feet default to US survey feet with a warning"),
             ("MILLIMETERS", "Millimeters", "One source unit equals 0.001 meters"),
             ("CENTIMETERS", "Centimeters", "One source unit equals 0.01 meters"),
             ("METERS", "Meters", "Source coordinates are meters"),
@@ -49,9 +127,42 @@ class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
         description="Use the supplied source Easting, Northing, and Elevation as the local mesh origin",
         default=False,
     )
-    pivot_easting: FloatProperty(name="Pivot Easting", default=0.0, precision=6)
-    pivot_northing: FloatProperty(name="Pivot Northing", default=0.0, precision=6)
-    pivot_elevation: FloatProperty(name="Pivot Elevation", default=0.0, precision=6)
+    use_cogo_pivot: BoolProperty(
+        name="Use LandXML COGO Pivot",
+        description="Choose a named COGO point from this file as the shared source-coordinate origin",
+        default=False,
+    )
+    pivot_point: StringProperty(
+        name="Pivot COGO Point",
+        description="Search point name or description; select a suggestion or enter an exact point name",
+        search=_search_cogo_points,
+        search_options={"SUGGESTION"},
+    )
+    pivot_easting: StringProperty(name="Pivot Easting", default="0")
+    pivot_northing: StringProperty(name="Pivot Northing", default="0")
+    pivot_elevation: StringProperty(name="Pivot Elevation", default="0")
+    coordinate_system: StringProperty(
+        name="US NAD83 Coordinate System",
+        description="Type a zone name to search, or enter an EPSG code directly; blank leaves the CRS unspecified",
+        search=_search_coordinate_system,
+        search_options={"SUGGESTION"},
+        default="",
+    )
+    horizontal_epsg: StringProperty(
+        name="Manual Projected EPSG",
+        description="Projected CRS code including zone and datum, e.g. 2232; blank preserves pivot without conversion",
+        default="",
+    )
+    vertical_datum: StringProperty(
+        name="Source Elevation Datum",
+        description="Survey elevation datum, e.g. NAVD88; blank means unknown",
+        default="",
+    )
+    ellipsoid_height: StringProperty(
+        name="Cesium Pivot Height (m)",
+        description="Known WGS84 ellipsoid height of the pivot in meters, NOT survey elevation; blank means unknown",
+        default="",
+    )
     validate_original_faces: BoolProperty(
         name="Validate Imported Geometry",
         description="Cancel the import if Blender does not retain the planned mesh vertex and face counts",
@@ -71,27 +182,56 @@ class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
         layout = self.layout
         layout.prop(self, "source_units")
         layout.prop(self, "point_order")
-        layout.prop(self, "shift_to_origin")
-        layout.prop(self, "use_custom_pivot")
-        if self.use_custom_pivot:
-            layout.prop(self, "pivot_easting")
-            layout.prop(self, "pivot_northing")
-            layout.prop(self, "pivot_elevation")
+        layout.label(text="Civil 3D: State Plane / US survey feet")
+        layout.prop(self, "coordinate_system")
+        if self.coordinate_system == "CUSTOM":
+            layout.prop(self, "horizontal_epsg")
+        layout.prop(self, "vertical_datum")
+        layout.prop(self, "ellipsoid_height")
+        layout.prop(self, "use_cogo_pivot")
+        if self.use_cogo_pivot:
+            layout.prop(self, "pivot_point")
+            try:
+                points = _pivot_candidates(self)
+                if not any(dict(point.attributes).get("name") for point in points):
+                    layout.label(text="No named COGO points in this file", icon="ERROR")
+                elif self.pivot_point:
+                    point = cogo_pivot(points, _selected_cogo_name(self))
+                    for label, value in zip(("Easting", "Northing", "Elevation"), point.coordinate):
+                        layout.label(text=f"{label}: {value:.12f}")
+            except (OSError, ValueError) as exc:
+                layout.label(text=str(exc), icon="ERROR")
+        else:
+            layout.prop(self, "shift_to_origin")
+            layout.prop(self, "use_custom_pivot")
+            if self.use_custom_pivot:
+                layout.prop(self, "pivot_easting")
+                layout.prop(self, "pivot_northing")
+                layout.prop(self, "pivot_elevation")
         layout.prop(self, "validate_original_faces")
 
     def execute(self, context):
         for obj in context.selected_objects:
             obj.select_set(False)
         try:
+            horizontal_epsg = resolve_crs_entry(self.coordinate_system, self.horizontal_epsg)
             result = import_landxml(
                 self.filepath,
                 source_units=self.source_units,
                 shift_to_origin=self.shift_to_origin,
                 point_order=self.point_order,
-                custom_origin=(self.pivot_easting, self.pivot_northing, self.pivot_elevation)
-                if self.use_custom_pivot
+                custom_origin=(
+                    parse_coordinate(self.pivot_easting),
+                    parse_coordinate(self.pivot_northing),
+                    parse_coordinate(self.pivot_elevation),
+                )
+                if self.use_custom_pivot and not self.use_cogo_pivot
                 else None,
+                pivot_point_name=_selected_cogo_name(self) if self.use_cogo_pivot else "",
                 validate_original_faces=self.validate_original_faces,
+                horizontal_epsg=horizontal_epsg,
+                vertical_datum=self.vertical_datum,
+                ellipsoid_height=self.ellipsoid_height,
             )
         except Exception as exc:
             self.report({"ERROR"}, str(exc))
@@ -110,6 +250,7 @@ class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
             vertex_count=sum(obj["landxml_vertex_count"] for obj in imported),
             face_count=sum(obj["landxml_face_count"] for obj in imported),
             source_face_count=source_faces,
+            invisible_face_count=sum(obj["landxml_invisible_face_count"] for obj in imported),
             clipped_face_count=clipped_faces,
             curve_count=len(result.curves),
             point_count=point_count,
@@ -120,6 +261,10 @@ class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
         )
         if result.unit_warning:
             self.report({"WARNING"}, result.unit_warning)
+        if not horizontal_epsg.strip():
+            self.report({"WARNING"}, "No projected CRS supplied; pivot preserved without Cesium longitude/latitude")
+        elif not self.ellipsoid_height.strip():
+            self.report({"WARNING"}, "Cesium longitude/latitude available; ellipsoid height still unknown")
         if skipped or degenerate:
             self.report(
                 {"WARNING"},
@@ -141,6 +286,7 @@ class WM_OT_landxml_import_validation(Operator):
     vertex_count: IntProperty(options={"HIDDEN"})
     face_count: IntProperty(options={"HIDDEN"})
     source_face_count: IntProperty(options={"HIDDEN"})
+    invisible_face_count: IntProperty(options={"HIDDEN"})
     clipped_face_count: IntProperty(options={"HIDDEN"})
     curve_count: IntProperty(options={"HIDDEN"})
     point_count: IntProperty(options={"HIDDEN"})
@@ -165,6 +311,8 @@ class WM_OT_landxml_import_validation(Operator):
             column.label(text=f"Point records: {self.point_count:,}")
         column.label(text=f"Units: {self.source_units.replace('_', ' ').title()}")
         column.label(text=f"Source faces: {self.source_face_count:,}")
+        if self.invisible_face_count:
+            column.label(text=f"Excluded invisible faces: {self.invisible_face_count:,}")
         column.label(text=f"Imported faces: {self.face_count:,}")
         if self.clipped_face_count:
             column.label(text=f"Boundary-affected source faces: {self.clipped_face_count:,}")
@@ -319,6 +467,130 @@ class OBJECT_OT_landxml_apply_orthophoto(Operator, ImportHelper):
         return {"FINISHED"}
 
 
+class EXPORT_SCENE_OT_landxml_survey_reference(Operator, ExportHelper):
+    bl_idname = "export_scene.landxml_survey_reference"
+    bl_label = "Export LandXML Survey Reference"
+    bl_description = "Write the active import's survey pivot and Cesium geographic anchor as JSON"
+
+    filename_ext = ".json"
+    filter_glob: StringProperty(default="*.json", options={"HIDDEN"})
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.active_object and "landxml_survey_reference" in context.active_object)
+
+    def execute(self, context):
+        try:
+            export_survey_reference(context.active_object, self.filepath)
+        except (OSError, ValueError) as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        self.report({"INFO"}, "Survey reference exported; read sidecar warnings before Cesium placement")
+        return {"FINISHED"}
+
+
+class EXPORT_SCENE_OT_landxml_cesium_footprint(Operator, ExportHelper):
+    bl_idname = "export_scene.landxml_cesium_footprint"
+    bl_label = "Export Cesium Surface Footprint"
+    bl_description = "Export the active TIN's exact visible footprint, islands and holes as geographic polygons"
+
+    filename_ext = ".geojson"
+    filter_glob: StringProperty(default="*.geojson", options={"HIDDEN"})
+    coordinate_system: StringProperty(
+        name="CRS Override (optional)",
+        description="Leave blank to use the imported CRS, or search a zone / type EPSG:26996",
+        search=_search_coordinate_system,
+        search_options={"SUGGESTION"},
+    )
+    edge_offset_meters: _footprint_offset_property()
+    simplify_meters: _footprint_simplify_property()
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.active_object and context.active_object.get("landxml_category") == "Surface")
+
+    def execute(self, context):
+        try:
+            result = export_cesium_footprint(
+                context.active_object, self.filepath,
+                horizontal_epsg=resolve_crs_entry(self.coordinate_system),
+                edge_offset_meters=self.edge_offset_meters,
+                simplify_meters=self.simplify_meters,
+            )
+        except Exception as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        counts = result["landxml"]
+        self.report(
+            {"INFO"},
+            f"Exported {counts['island_count']} island(s), {counts['hole_count']} hole(s); "
+            f"{result['cesium_unreal']['piece_count']} Cesium polygon actor(s). Use the Unreal import helper.",
+        )
+        return {"FINISHED"}
+
+
+class EXPORT_SCENE_OT_landxml_unreal_package(Operator, ExportHelper):
+    bl_idname = "export_scene.landxml_unreal_package"
+    bl_label = "Export LandXML Unreal Package"
+    bl_description = (
+        "Export the active import's TIN surfaces as FBX with the survey pivot, "
+        "plus survey reference JSON and Cesium footprints"
+    )
+
+    filename_ext = ".fbx"
+    filter_glob: StringProperty(default="*.fbx", options={"HIDDEN"})
+    selected_only: BoolProperty(
+        name="Selected Surfaces Only",
+        description="Export only selected surfaces from the active import instead of all of them",
+        default=False,
+    )
+    include_footprints: BoolProperty(
+        name="Cesium Footprints",
+        description="Write one footprint GeoJSON per surface for Cesium polygon cutouts (needs a CRS)",
+        default=True,
+    )
+    coordinate_system: StringProperty(
+        name="CRS Override (optional)",
+        description="Leave blank to use the imported CRS, or search a zone / type EPSG:26996",
+        search=_search_coordinate_system,
+        search_options={"SUGGESTION"},
+    )
+    edge_offset_meters: _footprint_offset_property()
+    simplify_meters: _footprint_simplify_property()
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.active_object and "landxml_survey_reference" in context.active_object)
+
+    def execute(self, context):
+        try:
+            result = export_unreal_package(
+                context.active_object, self.filepath,
+                selected_only=self.selected_only,
+                include_footprints=self.include_footprints,
+                horizontal_epsg=resolve_crs_entry(self.coordinate_system),
+                edge_offset_meters=self.edge_offset_meters,
+                simplify_meters=self.simplify_meters,
+            )
+        except Exception as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        for warning in result["warnings"]:
+            self.report({"WARNING"}, warning)
+        self.report(
+            {"INFO"},
+            f"Exported {result['surface_count']} surface(s) to {Path(result['fbx']).name} "
+            f"with survey JSON and {len(result['footprints'])} footprint(s)",
+        )
+        return {"FINISHED"}
+
+
+def _menu_export(self, context):
+    self.layout.operator(EXPORT_SCENE_OT_landxml_unreal_package.bl_idname, text="LandXML Unreal Package (.fbx + sidecars)")
+    self.layout.operator(EXPORT_SCENE_OT_landxml_survey_reference.bl_idname, text="LandXML Survey Reference (.json)")
+    self.layout.operator(EXPORT_SCENE_OT_landxml_cesium_footprint.bl_idname, text="Cesium Surface Footprint (.geojson)")
+
+
 def _menu_import(self, context):
     self.layout.operator(
         IMPORT_SCENE_OT_landxml_tin.bl_idname,
@@ -330,6 +602,9 @@ def _menu_object(self, context):
     self.layout.operator(OBJECT_OT_landxml_apply_breaklines.bl_idname)
     self.layout.operator(OBJECT_OT_landxml_validate_integrity.bl_idname)
     self.layout.operator(OBJECT_OT_landxml_apply_orthophoto.bl_idname)
+    self.layout.operator(EXPORT_SCENE_OT_landxml_survey_reference.bl_idname)
+    self.layout.operator(EXPORT_SCENE_OT_landxml_cesium_footprint.bl_idname)
+    self.layout.operator(EXPORT_SCENE_OT_landxml_unreal_package.bl_idname)
 
 
 _CLASSES = (
@@ -338,6 +613,9 @@ _CLASSES = (
     OBJECT_OT_landxml_apply_breaklines,
     OBJECT_OT_landxml_validate_integrity,
     OBJECT_OT_landxml_apply_orthophoto,
+    EXPORT_SCENE_OT_landxml_survey_reference,
+    EXPORT_SCENE_OT_landxml_cesium_footprint,
+    EXPORT_SCENE_OT_landxml_unreal_package,
 )
 
 
@@ -345,12 +623,13 @@ def register():
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.TOPBAR_MT_file_import.append(_menu_import)
+    bpy.types.TOPBAR_MT_file_export.append(_menu_export)
     bpy.types.VIEW3D_MT_object.append(_menu_object)
 
 
 def unregister():
+    bpy.types.TOPBAR_MT_file_export.remove(_menu_export)
     bpy.types.VIEW3D_MT_object.remove(_menu_object)
     bpy.types.TOPBAR_MT_file_import.remove(_menu_import)
     for cls in reversed(_CLASSES):
         bpy.utils.unregister_class(cls)
-

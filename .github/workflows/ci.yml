@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13" # Blender 5.2's bundled Python
-      - run: python -m pip install shapely==2.1.2
+      - run: python -m pip install shapely==2.1.2 pyproj==3.7.2
       - run: python -W error::DeprecationWarning -m unittest discover -s tests -v
 
   extension:

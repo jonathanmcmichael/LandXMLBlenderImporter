@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2">
+  <Units><Imperial linearUnit="USSurveyFoot"/></Units>
+  <CgPoints>
+    <CgPoint name="1" code="Building Corner">1698067.4612223296 3000000.123456789 5000</CgPoint>
+  </CgPoints>
+  <Surfaces>
+    <Surface name="Survey Surface">
+      <Definition surfType="TIN">
+        <Pnts>
+          <P id="1">1698067.4612223296 3000000.123456789 5000</P>
+          <P id="2">1698067.4612223296 3000010.123456789 5000</P>
+          <P id="3">1698077.4612223296 3000000.123456789 5002</P>
+        </Pnts>
+        <Faces><F>1 2 3</F><F i="1">1 3 2</F></Faces>
+      </Definition>
+    </Surface>
+  </Surfaces>
+</LandXML>

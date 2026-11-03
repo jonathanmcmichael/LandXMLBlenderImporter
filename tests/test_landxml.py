@@ -11,6 +11,8 @@ sys.path.insert(0, str(REPO_ROOT / "landxml_importer"))
 
 from landxml import (  # noqa: E402
     LandXMLError,
+    cogo_pivot,
+    read_cogo_points,
     build_mesh_data,
     build_curve_data,
     build_point_data,
@@ -25,6 +27,23 @@ from landxml import (  # noqa: E402
 
 
 class LandXMLTests(unittest.TestCase):
+    def test_cogo_pivot_candidates_preserve_exact_source_coordinates(self):
+        path = REPO_ROOT / "tests" / "fixtures" / "survey_surface.xml"
+        points = read_cogo_points(path)
+        point = cogo_pivot(points, "1")
+        self.assertEqual(point.coordinate, (3000000.123456789, 1698067.4612223296, 5000))
+        self.assertEqual(dict(point.attributes)["code"], "Building Corner")
+        self.assertEqual(
+            cogo_pivot(read_cogo_points(path, point_order="ENZ"), "1").coordinate,
+            (1698067.4612223296, 3000000.123456789, 5000),
+        )
+        document = parse_landxml_document(path)
+        self.assertEqual(cogo_pivot(document.points, "1"), point)
+        for candidates, name in (((), "1"), (points, ""), (points, "missing"), (points * 2, "1")):
+            with self.subTest(name=name), self.assertRaises(LandXMLError):
+                cogo_pivot(candidates, name)
+        self.assertEqual(read_cogo_points(REPO_ROOT / "tests" / "fixtures" / "two_surfaces.xml"), ())
+
     @classmethod
     def setUpClass(cls):
         fixture = REPO_ROOT / "tests" / "fixtures" / "two_surfaces.xml"
@@ -34,6 +53,58 @@ class LandXMLTests(unittest.TestCase):
         self.assertEqual([surface.name for surface in self.surfaces], ["Existing Ground", "Finished Ground"])
         self.assertEqual(self.surfaces[0].points["1"], (2000.0, 1000.0, 10.0))
         self.assertEqual(self.surfaces[0].faces, (("1", "2", "3"),))
+
+    def test_invisible_faces_are_preserved_but_not_meshed(self):
+        surface = self._parse_single_surface(
+            """
+            <P id="1">0 0 0</P><P id="2">0 1 0</P>
+            <P id="3">1 0 0</P><P id="4">1 1 0</P>
+            <F n="2 0 0">1 2 3</F>
+            <F i="1" n="1 0 0">2 4 3</F>
+            <F i="0">1 3 4</F>
+            """
+        )
+        self.assertEqual(len(surface.faces), 3)
+        mesh = build_mesh_data(surface)
+        self.assertEqual(mesh.faces, ((0, 1, 2), (0, 2, 3)))
+        self.assertEqual(mesh.source_face_count, 3)
+        self.assertEqual(mesh.invisible_face_count, 1)
+        self.assertEqual(mesh.skipped_face_count, 0)
+
+    def test_all_invisible_surface_produces_no_mesh_faces(self):
+        surface = self._parse_single_surface(
+            '<P id="1">0 0 0</P><P id="2">0 1 0</P><P id="3">1 0 0</P>'
+            '<F i="1">1 2 3</F>'
+        )
+        mesh = build_mesh_data(surface)
+        self.assertEqual(mesh.faces, ())
+        self.assertEqual(mesh.source_face_count, 1)
+        self.assertEqual(mesh.invisible_face_count, 1)
+
+    def test_invisible_faces_remain_excluded_with_boundary_clipping(self):
+        document = self._parse_document(
+            """
+            <Surfaces><Surface name="Test">
+            <SourceData><Boundaries><Boundary bndType="outer" edgeTrim="true">
+            <PntList3D>0 0 0 0 1 0 1 1 0 1 0 0 0 0 0</PntList3D>
+            </Boundary></Boundaries></SourceData>
+            <Definition><Pnts>
+            <P id="1">0 0 0</P><P id="2">0 1 0</P>
+            <P id="3">1 0 0</P><P id="4">1 1 0</P>
+            </Pnts><Faces><F>1 2 3</F><F i="1">2 4 3</F></Faces>
+            </Definition></Surface></Surfaces>
+            """
+        )
+        mesh = build_mesh_data(document.surfaces[0])
+        self.assertEqual(len(mesh.faces), 1)
+        self.assertEqual(mesh.source_face_count, 2)
+        self.assertEqual(mesh.invisible_face_count, 1)
+        hidden_records = [
+            record for record in document.root.iter_records()
+            if record["name"] == "F" and record["attributes"].get("i") == "1"
+        ]
+        self.assertEqual(len(hidden_records), 1)
+        self.assertEqual(hidden_records[0]["text"], "2 4 3")
 
     def test_document_model_preserves_non_surface_records_and_units(self):
         document = self._parse_document(
