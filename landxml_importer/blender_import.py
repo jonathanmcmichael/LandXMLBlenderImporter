@@ -427,13 +427,20 @@ def survey_reference_document(obj: bpy.types.Object) -> dict:
 
 def export_cesium_footprint(
     obj: bpy.types.Object, filepath: str, *, horizontal_epsg: str = "",
+    edge_offset_meters: float = 0.0, simplify_meters: float = 0.0,
 ) -> dict:
-    result = cesium_footprint_document(obj, horizontal_epsg=horizontal_epsg)
+    result = cesium_footprint_document(
+        obj, horizontal_epsg=horizontal_epsg,
+        edge_offset_meters=edge_offset_meters, simplify_meters=simplify_meters,
+    )
     _write_json(filepath, result)
     return result
 
 
-def cesium_footprint_document(obj: bpy.types.Object, *, horizontal_epsg: str = "") -> dict:
+def cesium_footprint_document(
+    obj: bpy.types.Object, *, horizontal_epsg: str = "",
+    edge_offset_meters: float = 0.0, simplify_meters: float = 0.0,
+) -> dict:
     if obj.type != "MESH" or obj.get("landxml_category") != "Surface":
         raise ValueError("Select an imported LandXML TIN surface")
     bpy.context.view_layer.update()
@@ -457,6 +464,8 @@ def cesium_footprint_document(obj: bpy.types.Object, *, horizontal_epsg: str = "
         unit_to_meters=obj["landxml_unit_to_meters"],
         horizontal_epsg=epsg,
         name=obj.name,
+        edge_offset_meters=edge_offset_meters,
+        simplify_meters=simplify_meters,
     )
     result["landxml"]["source_sha256"] = obj.get("landxml_source_sha256", "")
     return result
@@ -473,6 +482,8 @@ def export_unreal_package(
     selected_only: bool = False,
     include_footprints: bool = True,
     horizontal_epsg: str = "",
+    edge_offset_meters: float = 0.0,
+    simplify_meters: float = 0.0,
 ) -> dict:
     """Write FBX, survey reference and per-surface footprints for one LandXML import.
 
@@ -509,7 +520,10 @@ def export_unreal_package(
             used.add(token.lower())
             footprints.append((
                 fbx_path.with_name(f"{stem}_{token}.footprint.geojson"),
-                cesium_footprint_document(item, horizontal_epsg=horizontal_epsg),
+                cesium_footprint_document(
+                    item, horizontal_epsg=horizontal_epsg,
+                    edge_offset_meters=edge_offset_meters, simplify_meters=simplify_meters,
+                ),
             ))
     elif include_footprints:
         warnings.append("No horizontal CRS; Cesium footprints were skipped")

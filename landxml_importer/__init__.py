@@ -69,6 +69,28 @@ def _search_coordinate_system(self, context, edit_text):
     return search_us_nad83_crs(edit_text)
 
 
+def _footprint_offset_property():
+    return FloatProperty(
+        name="Edge Offset (m)",
+        description=(
+            "Shrink (negative) or grow (positive) the cutout from the exact TIN edge. "
+            "Negative keeps Cesium terrain under the TIN edge so no see-through gap appears"
+        ),
+        default=0.0, soft_min=-10.0, soft_max=10.0, step=10, precision=2,
+    )
+
+
+def _footprint_simplify_property():
+    return FloatProperty(
+        name="Simplify (m)",
+        description=(
+            "Drop boundary vertices that deviate less than this from the edge. "
+            "Use an inward offset at least this large to stay inside the TIN"
+        ),
+        default=0.0, min=0.0, soft_max=5.0, step=10, precision=2,
+    )
+
+
 class IMPORT_SCENE_OT_landxml_tin(Operator, ImportHelper):
     bl_idname = "import_scene.landxml_tin"
     bl_label = "Import LandXML Data"
@@ -480,6 +502,8 @@ class EXPORT_SCENE_OT_landxml_cesium_footprint(Operator, ExportHelper):
         search=_search_coordinate_system,
         search_options={"SUGGESTION"},
     )
+    edge_offset_meters: _footprint_offset_property()
+    simplify_meters: _footprint_simplify_property()
 
     @classmethod
     def poll(cls, context):
@@ -490,6 +514,8 @@ class EXPORT_SCENE_OT_landxml_cesium_footprint(Operator, ExportHelper):
             result = export_cesium_footprint(
                 context.active_object, self.filepath,
                 horizontal_epsg=resolve_crs_entry(self.coordinate_system),
+                edge_offset_meters=self.edge_offset_meters,
+                simplify_meters=self.simplify_meters,
             )
         except Exception as exc:
             self.report({"ERROR"}, str(exc))
@@ -529,6 +555,8 @@ class EXPORT_SCENE_OT_landxml_unreal_package(Operator, ExportHelper):
         search=_search_coordinate_system,
         search_options={"SUGGESTION"},
     )
+    edge_offset_meters: _footprint_offset_property()
+    simplify_meters: _footprint_simplify_property()
 
     @classmethod
     def poll(cls, context):
@@ -541,6 +569,8 @@ class EXPORT_SCENE_OT_landxml_unreal_package(Operator, ExportHelper):
                 selected_only=self.selected_only,
                 include_footprints=self.include_footprints,
                 horizontal_epsg=resolve_crs_entry(self.coordinate_system),
+                edge_offset_meters=self.edge_offset_meters,
+                simplify_meters=self.simplify_meters,
             )
         except Exception as exc:
             self.report({"ERROR"}, str(exc))

@@ -140,9 +140,18 @@ For each surface the helper imports a static mesh into `/Game/LandXML` (`destina
 
 Select an imported TIN and choose **File → Export → Cesium Surface Footprint (.geojson)** (also in the Object menu). Uses the import CRS, or an optional searchable **CRS Override** when the original import had no CRS. For original NAD83 / Missouri East use `EPSG:26996`; XML US survey feet are converted to the CRS's meters automatically.
 
-The exporter unions the raw visible mesh triangles in XY, without a convex hull, simplification or filling holes. Invisible LandXML faces are already excluded. Each disconnected island becomes a GeoJSON Polygon with its interior rings retained. Transformed objects, modifiers, edited base geometry and unspecified CRSs are rejected. Re-import older meshes before exporting. Mesh coordinates use Blender's stored precision; the footprint is topologically exact to that mesh, not a reconstruction of extra source-coordinate precision. Degenerate triangles with no XY area cannot define a polygon; their exclusion count is recorded.
+The exporter unions the raw visible mesh triangles in XY, without a convex hull or filling holes, and by default without simplification (see **Edge offset and simplification** below). Invisible LandXML faces are already excluded. Each disconnected island becomes a GeoJSON Polygon with its interior rings retained. Transformed objects, modifiers, edited base geometry and unspecified CRSs are rejected. Re-import older meshes before exporting. Mesh coordinates use Blender's stored precision; the footprint is topologically exact to that mesh, not a reconstruction of extra source-coordinate precision. Degenerate triangles with no XY area cannot define a polygon; their exclusion count is recorded.
 
 Cesium Cartographic Polygon actors have **one ring each**. The GeoJSON includes a `cesium_unreal.pieces` extension: islands without holes use one actor, while islands with holes are exactly partitioned into hole-free triangles. Interior rings must **not** be imported as separate clipping actors, which would hide the holes rather than preserve them. Complex footprints with holes may produce many actors; the exporter reports the count.
+
+### Edge offset and simplification
+
+Both footprint export and the Unreal package offer two optional settings (default 0, the exact TIN edge):
+
+- **Edge Offset (m)** shrinks (negative) or grows (positive) the cutout using mitred corners. An exact-edge cutout can show thin see-through slivers where the TIN edge and clipped terrain don't line up. A small **negative** offset keeps Cesium terrain under the TIN edge, so the TIN overlaps it instead of leaving a gap. A positive offset hides terrain that pokes through just outside the TIN, but it can open a visible hole beyond the edge.
+- **Simplify (m)** drops boundary vertices that deviate less than the tolerance (topology-preserving Douglas–Peucker). Simplification then keeps every boundary point within the tolerance of the offset edge. With an inward offset at least as large as the tolerance, the cutout stays entirely inside the TIN; the exporter checks this.
+
+The output records `exact_area_square_meters`, `area_square_meters`, `boundary_vertex_count` and the settings used. It warns when the boundary is no longer exact, or when an offset changed the island count, for example by splitting a narrow neck or removing a small island. On FG-WDC1 (3,102 exact boundary vertices), **Simplify 0.25** gives 725 vertices. **Offset −1, Simplify 0.5** gives 501 vertices fully inside the TIN; a narrow neck splits it into two islands.
 
 To create the actors:
 

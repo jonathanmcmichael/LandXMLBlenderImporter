@@ -106,6 +106,14 @@ def main():
               "visible triangle exports one footprint and no hidden triangle")
         check(footprint["features"][0]["geometry"]["coordinates"][0][0][0] < -105,
               "footprint coordinates are geographic longitude, not local mesh coordinates")
+        offset_path = str(Path(directory) / "offset.geojson")
+        check(bpy.ops.export_scene.landxml_cesium_footprint(
+            filepath=offset_path, edge_offset_meters=-0.5, simplify_meters=0.25,
+        ) == {"FINISHED"}, "footprint export accepts edge offset and simplify")
+        offset = json.loads(Path(offset_path).read_text())["landxml"]
+        check(offset["edge_offset_meters"] == -0.5
+              and offset["area_square_meters"] < footprint["landxml"]["area_square_meters"],
+              "inward edge offset shrinks the Cesium cutout")
         package_dir = Path(directory) / "package"
         package_dir.mkdir()
         expected = sorted(tuple(round(c, 6) for c in v.co) for v in survey_surface.data.vertices)

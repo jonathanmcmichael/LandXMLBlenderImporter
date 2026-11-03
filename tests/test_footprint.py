@@ -65,6 +65,44 @@ class FootprintTests(unittest.TestCase):
         self.assertEqual(result["landxml"]["area_square_meters"], 50)
         self.assertEqual(result["cesium_unreal"]["piece_count"], 1)
 
+    def test_inward_offset_and_simplify_stay_inside_exact_tin(self):
+        # A jagged 100 m square: sawtooth bottom edge with 0.2 m teeth.
+        vertices = [(x, 0.2 * (x % 2), 0) for x in range(101)] + [(100, 100, 0), (0, 100, 0)]
+        apex = len(vertices)
+        vertices.append((50, 50, 0))
+        faces = [(i, i + 1, apex) for i in range(100)] + [(100, 101, apex), (101, 102, apex), (102, 0, apex)]
+        exact = self.export(vertices, faces)
+        result = self.export(vertices, faces, edge_offset_meters=-1.0, simplify_meters=0.5)
+        info = result["landxml"]
+        self.assertLess(info["boundary_vertex_count"], exact["landxml"]["boundary_vertex_count"] / 10)
+        self.assertLess(info["area_square_meters"], info["exact_area_square_meters"])
+        self.assertEqual((info["edge_offset_meters"], info["simplify_meters"]), (-1.0, 0.5))
+        self.assertTrue(shape(exact["features"][0]["geometry"]).contains(shape(result["features"][0]["geometry"])))
+        self.assertIn("no longer the exact TIN edge", " ".join(info["warnings"]))
+
+    def test_outward_offset_grows_and_offset_can_remove_small_islands(self):
+        vertices, faces = self.donut_and_island()
+        grown = self.export(vertices, faces, edge_offset_meters=0.25)
+        self.assertGreater(grown["landxml"]["area_square_meters"], 9)
+        # A 10 m square plus a 0.5 m island: a 0.3 m inward offset removes only the island.
+        vertices = [(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0), (20, 0, 0), (20.5, 0, 0), (20.5, 0.5, 0)]
+        shrunk = self.export(vertices, [(0, 1, 2), (0, 2, 3), (4, 5, 6)], edge_offset_meters=-0.3)
+        self.assertEqual(shrunk["landxml"]["island_count"], 1)
+        self.assertEqual(shrunk["landxml"]["exact_island_count"], 2)
+        self.assertIn("changed the island count", " ".join(shrunk["landxml"]["warnings"]))
+        parts = union_all([Polygon(piece["ring"]) for piece in shrunk["cesium_unreal"]["pieces"]])
+        self.assertTrue(parts.equals(union_all([shape(f["geometry"]) for f in shrunk["features"]])))
+
+    def test_invalid_offset_and_simplify_fail(self):
+        vertices, faces = [(0, 0, 0), (10, 0, 0), (0, 10, 0)], [(0, 1, 2)]
+        for options in (
+            {"edge_offset_meters": float("nan")},
+            {"simplify_meters": -1.0},
+            {"edge_offset_meters": -10.0},
+        ):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                self.export(vertices, faces, **options)
+
     def test_no_visible_faces_invalid_faces_and_missing_crs_fail(self):
         vertices = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
         for faces in ([], [(0, 0, 0)], [(0, 1, 3)], [(0, 1)]):
