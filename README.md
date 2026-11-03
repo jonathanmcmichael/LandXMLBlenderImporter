@@ -11,6 +11,102 @@ The importer converts LandXML surface points/faces, boundaries, breaklines, Plan
 - A valid LandXML 1.2 document; files with or without supported geometry are retained as structured records.
 - PowerShell and a locally installed Blender executable when using the Windows install script.
 
+## How-to: Civil 3D → Blender → Unreal with Cesium
+
+This walkthrough takes a Civil 3D surface into Unreal, placed on the Cesium globe at its true location. It uses a real example: surface `FG-WDC1`, State Plane **NAD83 / Missouri East** (`EPSG:26996`), US survey feet, and a COGO point `1 - Building Corner` as the pivot.
+
+**You need:** Blender 5.2+, Unreal Engine 5.x with **Cesium for Unreal** and the **Python Editor Script Plugin** enabled, and this repository's `scripts/` folder for the Unreal helpers.
+
+### 1. Install the Blender extension
+
+In Blender, open **Edit → Preferences → Extensions → ⌄ → Install from Disk** and choose the ZIP for your platform, for example `landxml_tin_importer-0.3.0-windows_x64.zip`. To build the ZIP yourself, see [Build and install](#build-and-install).
+
+### 2. Export LandXML from Civil 3D
+
+1. **Choose the pivot.** Create a COGO point at a known spot near the site, such as a building corner or survey control point. Give it a name and description, for example `1` / `Building Corner`. Use control with a published **WGS84 ellipsoid height** if you can (step 6 needs it).
+2. **Export.** Use **Output → Export to LandXML** and include the **surface** and that **point**. Keep the drawing's real State Plane coordinates; don't move the drawing to 0,0 first.
+3. **Note the coordinate system.** Write down the drawing's zone and datum (Civil 3D: **Settings → Drawing Settings → Units and Zone**). LandXML exports usually don't include it.
+
+### 3. Import into Blender
+
+1. Choose **File → Import → LandXML Data (.xml)** and pick the file.
+2. Leave **Source Units** on **From LandXML (US Feet Fallback)**.
+3. Enable **Use LandXML COGO Pivot** and choose `1 - Building Corner` from **Pivot COGO Point**. Check that the previewed Easting/Northing/Elevation matches Civil 3D.
+4. In **US NAD83 Coordinate System**, type `Missouri East` and pick **NAD83 / Missouri East - EPSG:26996**, or type `26996`. For NAD83(2011) or HARN drawings, type that EPSG code instead.
+5. Set **Source Elevation Datum** (for example `NAVD88`). Fill in **Cesium Pivot Height (m)** only if you know the pivot's WGS84 ellipsoid height.
+6. Click **Import**. The building corner is now at Blender `(0, 0, 0)` and the terrain is in meters. Invisible Civil 3D triangles are left out, so separate areas stay separate.
+
+Edit materials as you like, but **don't move, rotate or scale** the imported surface. The exports check this and stop if anything has moved.
+
+### 4. Export the Unreal package
+
+1. With the surface selected, choose **File → Export → LandXML Unreal Package (.fbx + sidecars)**.
+2. Optional cutout settings: a good start is **Edge Offset −1 m** and **Simplify 0.5 m**, which keeps the cutout just inside the TIN with fewer points. See [Edge offset and simplification](#edge-offset-and-simplification).
+3. Save as, for example, `FG-WDC1.fbx`. You get three files side by side:
+
+   | File | Purpose |
+   |---|---|
+   | `FG-WDC1.fbx` | Terrain mesh in meters, with the pivot at local zero |
+   | `FG-WDC1.survey.json` | Pivot, Cesium longitude/latitude, grid convergence, file list |
+   | `FG-WDC1_FG-WDC1.footprint.geojson` | Cesium cutout polygon |
+
+   Keep the three files together; the Unreal helper finds them through the survey JSON.
+
+### 5. Find the pivot's ellipsoid height
+
+Cesium places things by **WGS84 ellipsoid height**, not survey elevation, and the importer won't guess the difference. To get it:
+
+- **Best:** ask for the surveyor's GPS value for the control point. It's often listed as "ellipsoid height" or "h".
+- **Otherwise:** convert the NAVD88 elevation in meters with [NGS GEOID18](https://geodesy.noaa.gov/GEOID/GEOID18/computation.html). Ellipsoid height = orthometric height + geoid height, and the geoid height is negative across the conterminous US.
+
+  Example: NGS gives a geoid height of **−31.81 m** at the FG-WDC1 building corner. 866 US ft = 263.96 m NAVD88, so 263.96 − 31.81 = **232.15 m**.
+
+  GEOID18 heights are relative to the NAD83(2011) ellipsoid. The WGS84 ellipsoid height differs by about a meter, which is usually fine for visualization; use survey-grade WGS84 control when it matters.
+
+### 6. Place it in Unreal
+
+1. Open a level with a **CesiumGeoreference** and a terrain tileset, such as Cesium World Terrain. Select the **CesiumGeoreference** actor in the Outliner.
+2. Open **Window → Output Log**, switch the input box from **Cmd** to **Python**, and run (adjust the paths and height):
+
+   ```python
+   import sys; sys.path.append(r"D:\dev\LandXMLBlenderImporter\scripts")
+   from import_landxml_unreal import import_package
+   import_package(r"C:\Exports\FG-WDC1.survey.json", ellipsoid_height_meters=232.15)
+   ```
+
+   The helper:
+   - imports the mesh into `/Game/LandXML`
+   - anchors it with a **Cesium Globe Anchor** at the building corner
+   - rotates it from grid north to true north (−0.43° for this site)
+   - creates the cutout polygon actors
+
+### 7. Cut the terrain under the mesh
+
+1. Select the terrain tileset and click **Add Component → Cesium Polygon Raster Overlay**.
+2. In its **Polygons** array, add **every** `..._Clip_####` actor the helper created.
+3. Check that the tileset material supports clipping (the default Cesium material does), then press **Refresh Tileset**. The Cesium terrain under your surface disappears.
+
+### 8. Verify and save
+
+- **Check placement.** Fly to the building corner or another known point and compare against imagery or survey control.
+  - Too high or too low: correct the ellipsoid height.
+  - Rotated: confirm you used the right zone and datum.
+- **Save.** The helper doesn't save the level for you.
+
+### Common issues
+
+| Symptom | Fix |
+|---|---|
+| Extra triangles join separate areas | Re-import; invisible Civil 3D faces are now excluded |
+| "Pivot ellipsoid height is unknown" | Pass `ellipsoid_height_meters=` (step 5) |
+| Mesh floats above or sinks below Cesium terrain | Height is wrong; NAVD88 elevation was probably used directly |
+| Mesh is off by kilometers | Wrong State Plane zone or datum in step 3 |
+| Export says objects are transformed | Clear the surface's location/rotation/scale, or re-import |
+| Cutout misses the edges or leaves a gap | Re-export with a small negative **Edge Offset** |
+| No footprint files were written | No coordinate system was set; use **CRS Override** in the export dialog |
+
+The rest of this README covers each step in detail.
+
 ## Project layout
 
 ```text
