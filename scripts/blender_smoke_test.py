@@ -106,6 +106,38 @@ def main():
               "visible triangle exports one footprint and no hidden triangle")
         check(footprint["features"][0]["geometry"]["coordinates"][0][0][0] < -105,
               "footprint coordinates are geographic longitude, not local mesh coordinates")
+        package_dir = Path(directory) / "package"
+        package_dir.mkdir()
+        expected = sorted(tuple(round(c, 6) for c in v.co) for v in survey_surface.data.vertices)
+        check(bpy.ops.export_scene.landxml_unreal_package(filepath=str(package_dir / "site.fbx"))
+              == {"FINISHED"}, "Unreal package export operator succeeds")
+        package_survey = json.loads((package_dir / "site.survey.json").read_text())
+        footprint_name = package_survey["package"]["footprints"][0]["file"]
+        check(package_survey["package"]["fbx"] == "site.fbx"
+              and package_survey["origin"] == reference["origin"]
+              and (package_dir / footprint_name).is_file(),
+              "package writes FBX, survey JSON and footprint that reference each other")
+        before = set(bpy.data.objects)
+        bpy.ops.import_scene.fbx(filepath=str(package_dir / "site.fbx"))
+        fbx_objects = [item for item in bpy.data.objects if item not in before]
+        check(len(fbx_objects) == 1, "package FBX contains only the TIN surface")
+        fbx_world = sorted(
+            tuple(round(c, 6) for c in fbx_objects[0].matrix_world @ v.co) for v in fbx_objects[0].data.vertices
+        )
+        check(fbx_world == expected, "FBX round-trips meter-scale vertices with the survey pivot at zero")
+        bpy.data.objects.remove(fbx_objects[0])
+        bpy.context.view_layer.objects.active = survey_surface
+        survey_surface.location.x = 1
+        bpy.context.view_layer.update()
+        rejected_dir = Path(directory) / "rejected"
+        rejected_dir.mkdir()
+        try:
+            blender_import.export_unreal_package(survey_surface, str(rejected_dir / "site.fbx"))
+        except ValueError:
+            pass
+        else:
+            raise RuntimeError("Smoke test failed: transformed package export was accepted")
+        check(not any(rejected_dir.iterdir()), "failed package export writes no partial files")
         survey_surface.location.x = 1
         try:
             blender_import.export_survey_reference(survey_surface, filepath)

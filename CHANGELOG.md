@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+- Add **LandXML Unreal Package** export: one action writes Unreal-ready FBX (meters, survey pivot at zero), survey-reference JSON with a package manifest, and per-surface Cesium footprints, validating everything before writing.
 - Select a named LandXML COGO point as the shared import pivot with searchable name/description suggestions, exact source XYZ preview, and point identity in the survey sidecar.
 - Export visible TIN footprints as geographic GeoJSON preserving islands and holes, with hole-free pieces and an Unreal Editor Python helper for Cesium Cartographic Polygon actors.
 - Make the NAD83 selector an editable search field: search zone names or EPSG codes, select a suggestion, or type an EPSG code directly.

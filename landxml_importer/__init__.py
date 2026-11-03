@@ -13,6 +13,7 @@ from .blender_import import (
     apply_orthophoto,
     export_survey_reference,
     export_cesium_footprint,
+    export_unreal_package,
     import_landxml,
     object_geometry_fingerprint,
 )
@@ -502,7 +503,60 @@ class EXPORT_SCENE_OT_landxml_cesium_footprint(Operator, ExportHelper):
         return {"FINISHED"}
 
 
+class EXPORT_SCENE_OT_landxml_unreal_package(Operator, ExportHelper):
+    bl_idname = "export_scene.landxml_unreal_package"
+    bl_label = "Export LandXML Unreal Package"
+    bl_description = (
+        "Export the active import's TIN surfaces as FBX with the survey pivot, "
+        "plus survey reference JSON and Cesium footprints"
+    )
+
+    filename_ext = ".fbx"
+    filter_glob: StringProperty(default="*.fbx", options={"HIDDEN"})
+    selected_only: BoolProperty(
+        name="Selected Surfaces Only",
+        description="Export only selected surfaces from the active import instead of all of them",
+        default=False,
+    )
+    include_footprints: BoolProperty(
+        name="Cesium Footprints",
+        description="Write one footprint GeoJSON per surface for Cesium polygon cutouts (needs a CRS)",
+        default=True,
+    )
+    coordinate_system: StringProperty(
+        name="CRS Override (optional)",
+        description="Leave blank to use the imported CRS, or search a zone / type EPSG:26996",
+        search=_search_coordinate_system,
+        search_options={"SUGGESTION"},
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return bool(context.active_object and "landxml_survey_reference" in context.active_object)
+
+    def execute(self, context):
+        try:
+            result = export_unreal_package(
+                context.active_object, self.filepath,
+                selected_only=self.selected_only,
+                include_footprints=self.include_footprints,
+                horizontal_epsg=resolve_crs_entry(self.coordinate_system),
+            )
+        except Exception as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        for warning in result["warnings"]:
+            self.report({"WARNING"}, warning)
+        self.report(
+            {"INFO"},
+            f"Exported {result['surface_count']} surface(s) to {Path(result['fbx']).name} "
+            f"with survey JSON and {len(result['footprints'])} footprint(s)",
+        )
+        return {"FINISHED"}
+
+
 def _menu_export(self, context):
+    self.layout.operator(EXPORT_SCENE_OT_landxml_unreal_package.bl_idname, text="LandXML Unreal Package (.fbx + sidecars)")
     self.layout.operator(EXPORT_SCENE_OT_landxml_survey_reference.bl_idname, text="LandXML Survey Reference (.json)")
     self.layout.operator(EXPORT_SCENE_OT_landxml_cesium_footprint.bl_idname, text="Cesium Surface Footprint (.geojson)")
 
@@ -520,6 +574,7 @@ def _menu_object(self, context):
     self.layout.operator(OBJECT_OT_landxml_apply_orthophoto.bl_idname)
     self.layout.operator(EXPORT_SCENE_OT_landxml_survey_reference.bl_idname)
     self.layout.operator(EXPORT_SCENE_OT_landxml_cesium_footprint.bl_idname)
+    self.layout.operator(EXPORT_SCENE_OT_landxml_unreal_package.bl_idname)
 
 
 _CLASSES = (
@@ -530,6 +585,7 @@ _CLASSES = (
     OBJECT_OT_landxml_apply_orthophoto,
     EXPORT_SCENE_OT_landxml_survey_reference,
     EXPORT_SCENE_OT_landxml_cesium_footprint,
+    EXPORT_SCENE_OT_landxml_unreal_package,
 )
 
 

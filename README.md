@@ -106,6 +106,16 @@ Example control point for EPSG:2232: Easting `3000000`, Northing `1698067.461222
 
 Local mesh X/Y are **projected grid east/north**, not true east/north. The sidecar records meridian convergence and projection scales at the pivot, but does not rotate, warp, or reproject the mesh. An anchor alone cannot give exact globe placement across a large site or account for a Civil 3D ground-coordinate calibration. Horizontal datum accuracy depends on locally available PROJ operations/grids; no ballpark transformation is permitted, and missing required grids produce an explicit error. Verify placement against known WGS84 control. The reference is stored on the Blender import collection and georeferenced objects, so it survives saving/reopening the `.blend`.
 
+### One-click Unreal package
+
+With an imported object active, choose **File → Export → LandXML Unreal Package (.fbx + sidecars)** (also in the Object menu). Saving `site.fbx` writes:
+
+- `site.fbx` — the import's TIN surfaces only, in meters with the survey pivot at local zero, modifiers applied and textures embedded. Unreal's FBX importer scales 1 m to 100 uu and maps Blender +Y (grid north) to Unreal −Y, which matches Cesium's east/south/up georeference frame. Verify orientation against control on your first import.
+- `site.survey.json` — the survey reference above, plus a `package` block listing the FBX, mesh objects and footprint files.
+- `site_<surface>.footprint.geojson` — one Cesium clipping footprint per surface (see below). Skipped with a warning when no CRS is known; use **CRS Override** to supply one.
+
+**Selected Surfaces Only** limits the package to the selected surfaces of the active import. Scene **Unit Scale** must be 1.0, surfaces must be visible, and every check (transforms, modifiers, edited geometry, CRS) runs before any file is written, so a failed export leaves no partial package.
+
 ## Export a Cesium clipping polygon
 
 Select an imported TIN and choose **File → Export → Cesium Surface Footprint (.geojson)** (also in the Object menu). Uses the import CRS, or an optional searchable **CRS Override** when the original import had no CRS. For original NAD83 / Missouri East use `EPSG:26996`; XML US survey feet are converted to the CRS's meters automatically.

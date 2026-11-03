@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import re
 
 import bpy
 from mathutils import Matrix
@@ -392,8 +393,18 @@ def import_landxml(
     )
 
 
+def _write_json(filepath: str | Path, document: dict) -> None:
+    Path(filepath).write_text(
+        json.dumps(document, indent=2, ensure_ascii=True, allow_nan=False) + "\n", encoding="utf-8",
+    )
+
+
 def export_survey_reference(obj: bpy.types.Object, filepath: str) -> None:
     """Export a reference only while the imported local coordinate frame is intact."""
+    _write_json(filepath, survey_reference_document(obj))
+
+
+def survey_reference_document(obj: bpy.types.Object) -> dict:
     collection_name = obj.get("landxml_import_collection")
     collection = bpy.data.collections.get(collection_name) if collection_name else None
     if collection is None or "landxml_survey_reference" not in obj:
@@ -411,15 +422,18 @@ def export_survey_reference(obj: bpy.types.Object, filepath: str) -> None:
     reference = json.loads(reference_json)
     reference["objects"] = [item.name for item in objects]
     reference["source_sha256"] = collection["landxml_source_sha256"]
-    Path(filepath).write_text(
-        json.dumps(reference, indent=2, ensure_ascii=True, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+    return reference
 
 
 def export_cesium_footprint(
     obj: bpy.types.Object, filepath: str, *, horizontal_epsg: str = "",
 ) -> dict:
+    result = cesium_footprint_document(obj, horizontal_epsg=horizontal_epsg)
+    _write_json(filepath, result)
+    return result
+
+
+def cesium_footprint_document(obj: bpy.types.Object, *, horizontal_epsg: str = "") -> dict:
     if obj.type != "MESH" or obj.get("landxml_category") != "Surface":
         raise ValueError("Select an imported LandXML TIN surface")
     bpy.context.view_layer.update()
@@ -445,10 +459,114 @@ def export_cesium_footprint(
         name=obj.name,
     )
     result["landxml"]["source_sha256"] = obj.get("landxml_source_sha256", "")
-    Path(filepath).write_text(
-        json.dumps(result, indent=2, ensure_ascii=True, allow_nan=False) + "\n", encoding="utf-8",
-    )
     return result
+
+
+def _file_token(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._") or "surface"
+
+
+def export_unreal_package(
+    obj: bpy.types.Object,
+    filepath: str,
+    *,
+    selected_only: bool = False,
+    include_footprints: bool = True,
+    horizontal_epsg: str = "",
+) -> dict:
+    """Write FBX, survey reference and per-surface footprints for one LandXML import.
+
+    Every check and document is computed before anything is written so a failure
+    never leaves a partial package that disagrees with itself.
+    """
+    if bpy.context.mode != "OBJECT":
+        raise ValueError("Switch to Object Mode before exporting")
+    if bpy.context.scene.unit_settings.scale_length != 1.0:
+        raise ValueError("Set Scene Units > Unit Scale to 1.0 so 1 Blender unit exports as 1 meter")
+    reference = survey_reference_document(obj)
+    surfaces = [
+        item for item in (bpy.data.objects[name] for name in reference["objects"])
+        if item.type == "MESH" and item.get("landxml_category") == "Surface"
+        and (not selected_only or item.select_get())
+    ]
+    if not surfaces:
+        raise ValueError("No imported TIN surfaces to export" + (" in the selection" if selected_only else ""))
+    hidden = [item.name for item in surfaces if not item.visible_get()]
+    if hidden:
+        raise ValueError(f"Unhide surfaces before exporting: {', '.join(hidden)}")
+
+    fbx_path = Path(filepath).with_suffix(".fbx")
+    stem = fbx_path.stem
+    has_crs = bool(horizontal_epsg.strip() or reference.get("horizontal_crs"))
+    footprints: list[tuple[Path, dict]] = []
+    warnings: list[str] = []
+    if include_footprints and has_crs:
+        used: set[str] = set()
+        for item in surfaces:
+            token = _file_token(item.name)
+            while token.lower() in used:
+                token += "_"
+            used.add(token.lower())
+            footprints.append((
+                fbx_path.with_name(f"{stem}_{token}.footprint.geojson"),
+                cesium_footprint_document(item, horizontal_epsg=horizontal_epsg),
+            ))
+    elif include_footprints:
+        warnings.append("No horizontal CRS; Cesium footprints were skipped")
+
+    reference["package"] = {
+        "fbx": fbx_path.name,
+        "mesh_objects": [item.name for item in surfaces],
+        "footprints": [
+            {"object": item.name, "file": path.name}
+            for item, (path, _) in zip(surfaces, footprints)
+        ],
+        "fbx_units": "meters (Unreal imports 1 m as 100 uu)",
+    }
+
+    view_layer = bpy.context.view_layer
+    previous_active = view_layer.objects.active
+    previous_selection = [item for item in view_layer.objects if item.select_get()]
+    try:
+        for item in previous_selection:
+            item.select_set(False)
+        for item in surfaces:
+            item.select_set(True)
+        view_layer.objects.active = surfaces[0]
+        status = bpy.ops.export_scene.fbx(
+            filepath=str(fbx_path),
+            use_selection=True,
+            object_types={"MESH"},
+            apply_unit_scale=True,
+            apply_scale_options="FBX_SCALE_NONE",
+            axis_forward="-Z",
+            axis_up="Y",
+            bake_space_transform=False,
+            use_mesh_modifiers=True,
+            mesh_smooth_type="FACE",
+            add_leaf_bones=False,
+            bake_anim=False,
+            path_mode="COPY",
+            embed_textures=True,
+        )
+    finally:
+        for item in view_layer.objects:
+            item.select_set(item in previous_selection)
+        view_layer.objects.active = previous_active
+    if status != {"FINISHED"}:
+        raise ValueError("Blender FBX export failed")
+
+    survey_path = fbx_path.with_name(f"{stem}.survey.json")
+    _write_json(survey_path, reference)
+    for path, document in footprints:
+        _write_json(path, document)
+    return {
+        "fbx": str(fbx_path),
+        "survey": str(survey_path),
+        "footprints": [str(path) for path, _ in footprints],
+        "surface_count": len(surfaces),
+        "warnings": warnings,
+    }
 
 
 def _ortho_material(image: bpy.types.Image) -> bpy.types.Material:
